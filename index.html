@@ -16,13 +16,14 @@ let params = {
     center: [0.0, 0.0],
     scale: 0.4,
     draggingPoint: 0,
+    draggingMandelbrot: false,
 };
 let glStuff = null;
         
 function setup() {
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("webgl");
-    ctx.clearColor(1.0, 0.0, 0.0, 1.0);
+    ctx.clearColor(1.0, 0.9, 0.9, 1.0);
 
     // Vertex Shader program - mark fixed points
     const vsSourcePoints = `
@@ -45,11 +46,11 @@ function setup() {
     const fsSourcePoints = `
         precision mediump float;
         void main(void) {
-            gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+            gl_FragColor = vec4(1.0, 0.7, 0.0, 1.0);
         }
     `;
 
-    // Vertex shader program
+    // Julia Vertex shader program
     const vsSource = `
         precision mediump float;
         attribute vec2 aVertexPosition;
@@ -81,7 +82,7 @@ function setup() {
             C = mul(a, mul(b, c));
         }
     `;
-    // Fragment shader program
+    // Julia Fragment shader program
     const fsSource = `
         precision mediump float;
         uniform vec2 a;
@@ -129,6 +130,93 @@ function setup() {
             gl_FragColor = vec4(color, color, color, 1.0);
         }
     `;
+
+    // Mandelbrot vertex shader program
+    const vsSourceMandelbrot = `
+        precision mediump float;
+        attribute vec2 aVertexPosition;
+        uniform vec2 uCenter;
+        uniform float uScale;
+        uniform vec2 a;
+        uniform vec2 b;
+        varying vec2 va;
+        varying vec2 vb;
+        varying vec2 vc;
+
+        void main(void) {
+            gl_Position = vec4(aVertexPosition, 0.0, 1.0);
+            va = a;
+            vb = b;
+            vc = (aVertexPosition - uCenter) / uScale;
+        }
+    `;
+
+    // Mandelbrot fragment shader program
+    const fsSourceMandelbrot = `
+        precision mediump float;
+        varying vec2 va;
+        varying vec2 vb;
+        varying vec2 vc;
+        varying vec2 vPosition;
+
+        vec2 mul(vec2 x, vec2 y) {
+            return vec2(
+                x.x * y.x - x.y * y.y,
+                x.x * y.y + x.y * y.x);
+        }
+
+        vec2 div(vec2 x, vec2 y) {
+            float denom = y.x * y.x + y.y * y.y;
+            return vec2(
+                (x.x * y.x + x.y * y.y) / denom,
+                (x.y * y.x - x.x * y.y) / denom);
+        }
+
+        void main(void) {
+            vec2 A = vec2(0.0, 0.0);
+            vec2 D = -(va + vb + vc);
+            vec2 B = vec2(0.0, 0.0);
+            vec2 E = mul(va, vb) + mul(va, vc) + mul(vb, vc);
+            vec2 C = mul(va, mul(vb, vc));
+
+            vec2 z = vec2(0.0, 0.0);
+            const int max_iteration = 200;
+            int iter = 0;
+            vec2 prevPrevZ = vec2(100000.0, 0.0);
+            vec2 prevZ = vec2(-100000.0, 0.0);
+            float red = 0.0;
+            float green = 0.0;
+            float blue = 0.0;
+            for (int iteration = 0; iteration < max_iteration; iteration++) {
+                vec2 z2 = mul(z, z);
+                z = div(
+                    mul(A, z2) + mul(B, z) + C,
+                    z2 + mul(D, z) + E
+                );
+                if (length(z - va) < 0.1) {
+                    red += 1.0;
+                }
+                if (length(z - vb) < 0.1) {
+                    green += 1.0;
+                }
+                if (length(z - vc) < 0.1) {
+                    blue += 1.0;
+                }
+                // if (length(z - prevPrevZ) > 0.1) {
+                //     iter++;
+                // }
+                prevPrevZ = prevZ;
+                prevZ = z;
+            }
+            gl_FragColor = vec4(
+                sqrt(red / float(max_iteration)),
+                sqrt(green / float(max_iteration)),
+                sqrt(blue / float(max_iteration)),
+            1.0);
+        }
+    `;
+
+
     // Initialize shaders
     const vertexShaderPoints = ctx.createShader(ctx.VERTEX_SHADER);
     ctx.shaderSource(vertexShaderPoints, vsSourcePoints);
@@ -159,6 +247,24 @@ function setup() {
     ctx.attachShader(shaderProgram, fragmentShader);
     ctx.linkProgram(shaderProgram);
     ctx.useProgram(shaderProgram);
+
+    const vertexProgramMandelbrot = ctx.createShader(ctx.VERTEX_SHADER);
+    ctx.shaderSource(vertexProgramMandelbrot, vsSourceMandelbrot);
+    ctx.compileShader(vertexProgramMandelbrot);
+    const fragmentProgramMandelbrot = ctx.createShader(ctx.FRAGMENT_SHADER);
+    ctx.shaderSource(fragmentProgramMandelbrot, fsSourceMandelbrot);
+    ctx.compileShader(fragmentProgramMandelbrot);
+    if (!ctx.getShaderParameter(vertexProgramMandelbrot, ctx.COMPILE_STATUS) ||
+        !ctx.getShaderParameter(fragmentProgramMandelbrot, ctx.COMPILE_STATUS)) {
+        console.error("An error occurred compiling the shaders: " +
+            ctx.getShaderInfoLog(vertexProgramMandelbrot) + " " +
+            ctx.getShaderInfoLog(fragmentProgramMandelbrot));
+        return null;
+    }
+    const shaderProgramMandelbrot = ctx.createProgram();
+    ctx.attachShader(shaderProgramMandelbrot, vertexProgramMandelbrot);
+    ctx.attachShader(shaderProgramMandelbrot, fragmentProgramMandelbrot);
+    ctx.linkProgram(shaderProgramMandelbrot);
 
     // Set up square vertices
     const vertices = new Float32Array([
@@ -197,14 +303,22 @@ function setup() {
         uaPoints: ctx.getUniformLocation(shaderProgramPoints, "a"),
         ubPoints: ctx.getUniformLocation(shaderProgramPoints, "b"),
         ucPoints: ctx.getUniformLocation(shaderProgramPoints, "c"),
+        shaderProgramMandelbrot,
+        vertexProgramMandelbrot,
+        aVertexPositionMandelbrot: ctx.getAttribLocation(shaderProgramMandelbrot, "aVertexPosition"),
+        uCenterMandelbrot: ctx.getUniformLocation(shaderProgramMandelbrot, "uCenter"),
+        uScaleMandelbrot: ctx.getUniformLocation(shaderProgramMandelbrot, "uScale"),
+        uaMandelbrot: ctx.getUniformLocation(shaderProgramMandelbrot, "a"),
+        ubMandelbrot: ctx.getUniformLocation(shaderProgramMandelbrot, "b"),
     };
 }
 
 function paint(stuff) {
     const ctx = document.getElementById("canvas").getContext("webgl");
     ctx.clear(ctx.COLOR_BUFFER_BIT);
+    ctx.viewport(0, 0, ctx.canvas.width / 2, ctx.canvas.height);
     
-    // Draw the square
+    // Draw the Julia set
     ctx.useProgram(stuff.shaderProgram);
     ctx.uniform2f(stuff.uCenter, params.center[0], params.center[1]);
     ctx.uniform1f(stuff.uScale, params.scale);
@@ -217,7 +331,7 @@ function paint(stuff) {
     ctx.vertexAttribPointer(stuff.aVertexPosition, 2, ctx.FLOAT, false, 0, 0);
     ctx.drawArrays(ctx.TRIANGLE_STRIP, 0, 4);
     
-    // Draw the points
+    // Draw the dragging points
     ctx.useProgram(stuff.shaderProgramPoints);
     ctx.uniform2f(stuff.uCenterPoints, params.center[0], params.center[1]);
     ctx.uniform1f(stuff.uScalePoints, params.scale);
@@ -228,6 +342,40 @@ function paint(stuff) {
     ctx.enableVertexAttribArray(stuff.aVertexPosition);
     ctx.vertexAttribPointer(stuff.aVertexPosition, 3, ctx.FLOAT, false, 0, 0);
     ctx.drawArrays(ctx.POINTS, 0, 3);
+
+    // Draw the Mandelbrot set
+    if (params.draggingPoint !== -1) {
+        ctx.viewport(ctx.canvas.width / 2, 0, ctx.canvas.width / 2, ctx.canvas.height);
+        ctx.useProgram(stuff.shaderProgramMandelbrot);
+        ctx.uniform2f(stuff.uCenterMandelbrot, params.center[0], params.center[1]);
+        ctx.uniform1f(stuff.uScaleMandelbrot, params.scale);
+        if (params.draggingPoint === 0) {
+            ctx.uniform2f(stuff.uaMandelbrot, params.fixedPoints[1][0], params.fixedPoints[1][1]);
+            ctx.uniform2f(stuff.ubMandelbrot, params.fixedPoints[2][0], params.fixedPoints[2][1]);
+        } else if (params.draggingPoint === 1) {
+            ctx.uniform2f(stuff.uaMandelbrot, params.fixedPoints[0][0], params.fixedPoints[0][1]);
+            ctx.uniform2f(stuff.ubMandelbrot, params.fixedPoints[2][0], params.fixedPoints[2][1]);
+        } else {
+            ctx.uniform2f(stuff.uaMandelbrot, params.fixedPoints[0][0], params.fixedPoints[0][1]);
+            ctx.uniform2f(stuff.ubMandelbrot, params.fixedPoints[1][0], params.fixedPoints[1][1]);
+        }
+        ctx.bindBuffer(ctx.ARRAY_BUFFER, stuff.vertexBuffer);
+        ctx.enableVertexAttribArray(stuff.aVertexPositionMandelbrot);
+        ctx.vertexAttribPointer(stuff.aVertexPositionMandelbrot, 2, ctx.FLOAT, false, 0, 0);
+        ctx.drawArrays(ctx.TRIANGLE_STRIP, 0, 4);
+        
+        // Draw the dragging point on the mandelbrot set
+        ctx.useProgram(stuff.shaderProgramPoints);
+        ctx.uniform2f(stuff.uCenterPoints, params.center[0], params.center[1]);
+        ctx.uniform1f(stuff.uScalePoints, params.scale);
+        ctx.uniform2f(stuff.uaPoints, params.fixedPoints[0][0], params.fixedPoints[0][1]);
+        ctx.uniform2f(stuff.ubPoints, params.fixedPoints[1][0], params.fixedPoints[1][1]);
+        ctx.uniform2f(stuff.ucPoints, params.fixedPoints[2][0], params.fixedPoints[2][1]);
+        ctx.bindBuffer(ctx.ARRAY_BUFFER, stuff.vertexBufferPoints);
+        ctx.enableVertexAttribArray(stuff.aVertexPosition);
+        ctx.vertexAttribPointer(stuff.aVertexPosition, 3, ctx.FLOAT, false, 0, 0);
+        ctx.drawArrays(ctx.POINTS, params.draggingPoint, 1);
+    }
 }
 
 
@@ -247,11 +395,17 @@ function mousemove() {
 
 function update_point(x, y, mousedown) {
     const rect = event.target.getBoundingClientRect();
-    const canvasX = x - rect.left;
+    let canvasX = x - rect.left;
     const canvasY = y - rect.top;
-    const ndcX = (canvasX / rect.width) * 2 - 1;
-    const ndcY = 1 - (canvasY / rect.height) * 2
     if (mousedown) {
+        params.draggingMandelbrot = canvasX > rect.width / 2;
+    }
+    if (params.draggingMandelbrot) {
+        canvasX -= rect.width / 2;
+    }
+    const ndcX = (canvasX / rect.width * 2) * 2 - 1;
+    const ndcY = 1 - (canvasY / rect.height) * 2
+    if (mousedown && !params.draggingMandelbrot) {
         // Determine if we are near a fixed point
         for (let i = 0; i < params.fixedPoints.length; i++) {
             const fp = params.fixedPoints[i];
@@ -283,6 +437,6 @@ window.onload = start;
     </script>
 </head>
 <body>
-    <canvas id="canvas" width="800" height="800" onmousedown="mousedown()" onmousemove="mousemove()"></canvas>
+    <canvas id="canvas" width="1600" height="800" onmousedown="mousedown()" onmousemove="mousemove()"></canvas>
 </body>
 </html>
