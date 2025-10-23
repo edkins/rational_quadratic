@@ -315,11 +315,9 @@ function setup() {
         }
 
         void main(void) {
-            // vec2 A = (vH + div(vec2(1.0, 0.0), vG)) + vec2(0.5, 0);
-            vec2 A = (vH + div(vec2(1.0, 0.0), csqrt(vG)));
+            vec2 A = (vH + div(vec2(1.0, 0.0), vG)) + vec2(0.5, 0);
             vec2 D = A - (va + vb + vc);
-            // vec2 B = (vH - div(vec2(1.0, 0.0), vG)) - vec2(0.5, 0);
-            vec2 B = (vH - div(vec2(1.0, 0.0), csqrt(vG)));
+            vec2 B = (vH - div(vec2(1.0, 0.0), vG)) - vec2(0.5, 0);
             vec2 E = B + mul(va, vb) + mul(va, vc) + mul(vb, vc);
             vec2 C = mul(va, mul(vb, vc));
 
