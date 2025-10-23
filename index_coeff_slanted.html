@@ -13,12 +13,12 @@ let params = {
         [-0.5, Math.sqrt(3)/2],
         [-0.5, -Math.sqrt(3)/2]
     ],
-    G: [0.0, 0.0],
+    G: [-1.0, 0.0],
     H: [0.0, 0.0],
     center: [0.0, 0.0],
     scale: 0.4,
     draggingPoint: 0,
-    draggingFlip: false,
+    draggingFlip: true,
 };
 let glStuff = null;
         
@@ -315,9 +315,11 @@ function setup() {
         }
 
         void main(void) {
-            vec2 A = vG;
+            // vec2 A = (vH + div(vec2(1.0, 0.0), vG)) + vec2(0.5, 0);
+            vec2 A = (vH + div(vec2(1.0, 0.0), csqrt(vG)));
             vec2 D = A - (va + vb + vc);
-            vec2 B = vH - mul(vG, vG);
+            // vec2 B = (vH - div(vec2(1.0, 0.0), vG)) - vec2(0.5, 0);
+            vec2 B = (vH - div(vec2(1.0, 0.0), csqrt(vG)));
             vec2 E = B + mul(va, vb) + mul(va, vc) + mul(vb, vc);
             vec2 C = mul(va, mul(vb, vc));
 
@@ -567,7 +569,7 @@ function paint(stuff) {
 function mousedown() {
     const x = event.clientX;
     const y = event.clientY;
-    params.draggingFlip = event.shiftKey;
+    params.draggingFlip = !event.shiftKey;
     update_point(x,y,true);
 }
 
@@ -575,7 +577,7 @@ function mousemove() {
     if (event.buttons === 1) {
         const x = event.clientX;
         const y = event.clientY;
-        params.draggingFlip = event.shiftKey;
+        params.draggingFlip = !event.shiftKey;
         update_point(x, y, false);
     }
 }
