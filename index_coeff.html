@@ -30,7 +30,7 @@ function setup() {
     // Vertex Shader program - mark fixed points
     const vsSourcePoints = `
         attribute vec3 aVertexPosition;
-        attribute vec3 aABPosition;
+        attribute vec4 aABPosition;
         uniform vec2 uCenter;
         uniform float uScale;
         uniform vec2 uPoint;
@@ -39,9 +39,49 @@ function setup() {
         uniform vec2 c;
         uniform vec2 A;
         uniform vec2 B;
+
+        vec2 csqrt(vec2 z) {
+            float r = length(z);
+            float theta = atan(z.y, z.x);
+            return vec2(
+                sqrt(r) * cos(theta / 2.0),
+                sqrt(r) * sin(theta / 2.0)
+            );
+        }
+
+        vec2 mul(vec2 x, vec2 y) {
+            return vec2(
+                x.x * y.x - x.y * y.y,
+                x.x * y.y + x.y * y.x);
+        }
+
+        vec2 div(vec2 x, vec2 y) {
+            float denom = y.x * y.x + y.y * y.y;
+            return vec2(
+                (x.x * y.x + x.y * y.y) / denom,
+                (x.y * y.x - x.x * y.y) / denom);
+        }
+
+        vec4 solve_quadratic(vec2 a, vec2 b, vec2 c) {
+            vec2 discriminant = csqrt(mul(b, b) - 4.0 * mul(a, c));
+            vec2 root1 = div(-b + discriminant, 2.0 * a);
+            vec2 root2 = div(-b - discriminant, 2.0 * a);
+            return vec4(root1, root2);  // return both roots packed together
+        }
+
         void main(void) {
+            vec2 D = A - (a + b + c);
+            vec2 E = B + mul(a, b) + mul(a, c) + mul(b, c);
+            vec2 C = mul(a, mul(b, c));
+
+            vec4 roots = solve_quadratic(
+                mul(A, D) - B,
+                2.0 * (mul(A,E) - C),
+                mul(B, E) - mul(C, D)
+            );
+
             gl_Position = vec4(
-                (a * aVertexPosition.x + b * aVertexPosition.y + c * aVertexPosition.z + A * aABPosition.x + B * aABPosition.y) * uScale + uCenter,
+                (a * aVertexPosition.x + b * aVertexPosition.y + c * aVertexPosition.z + roots.xy * aABPosition.x + roots.zw * aABPosition.y + A * aABPosition.z + B * aABPosition.w) * uScale + uCenter,
                 0.0,
                 1.0);
             gl_PointSize = 7.0;
@@ -115,8 +155,15 @@ function setup() {
                 (x.y * y.x - x.x * y.y) / denom);
         }
 
-        void main(void) {
-            vec2 z = vPosition;
+        float mandelbrot(
+            vec2 A,
+            vec2 B,
+            vec2 C,
+            vec2 D,
+            vec2 E,
+            vec2 z0
+        ) {
+            vec2 z = z0;
             const int max_iteration = 200;
             int iter = 0;
             vec2 prevPrevZ = vec2(100000.0, 0.0);
@@ -134,6 +181,11 @@ function setup() {
                 prevZ = z;
             }
             float color = 1.0 - sqrt(float(iter) / float(max_iteration));
+            return color;
+        }
+
+        void main(void) {
+            float color = mandelbrot(A, B, C, D, E, vPosition);
             gl_FragColor = vec4(color, color, color, 1.0);
         }
     `;
@@ -147,6 +199,7 @@ function setup() {
         uniform vec2 a;
         uniform vec2 b;
         uniform vec2 c;
+        uniform vec2 uA;
         uniform vec2 uB;
         varying vec2 va;
         varying vec2 vb;
@@ -243,9 +296,6 @@ function setup() {
             int iter = 0;
             vec2 prevPrevZ = vec2(100000.0, 0.0);
             vec2 prevZ = vec2(-100000.0, 0.0);
-            float red = 0.0;
-            float green = 0.0;
-            float blue = 0.0;
             for (int iteration = 0; iteration < max_iteration; iteration++) {
                 vec2 z2 = mul(z, z);
                 z = div(
@@ -360,17 +410,21 @@ function setup() {
         0, 0, 1,
         0, 0, 0,
         0, 0, 0,
+        0, 0, 0,
+        0, 0, 0,
     ]);
     const vertexBufferPoints = ctx.createBuffer();
     ctx.bindBuffer(ctx.ARRAY_BUFFER, vertexBufferPoints);
     ctx.bufferData(ctx.ARRAY_BUFFER, pointVertices, ctx.STATIC_DRAW);
 
     const ABPointVertices = new Float32Array([
-        0, 0,
-        0, 0,
-        0, 0,
-        1, 0,
-        0, 1,
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1,
     ]);
     const vertexBufferABPoints = ctx.createBuffer();
     ctx.bindBuffer(ctx.ARRAY_BUFFER, vertexBufferABPoints);
@@ -406,6 +460,7 @@ function setup() {
         uScaleMandelbrotA: ctx.getUniformLocation(shaderProgramMandelbrotA, "uScale"),
         uaMandelbrotA: ctx.getUniformLocation(shaderProgramMandelbrotA, "a"),
         ubMandelbrotA: ctx.getUniformLocation(shaderProgramMandelbrotA, "b"),
+        ucMandelbrotA: ctx.getUniformLocation(shaderProgramMandelbrotA, "c"),
         uAMandelbrotA: ctx.getUniformLocation(shaderProgramMandelbrotA, "uA"),
         uBMandelbrotA: ctx.getUniformLocation(shaderProgramMandelbrotA, "uB"),
         shaderProgramMandelbrotB,
@@ -415,6 +470,7 @@ function setup() {
         uScaleMandelbrotB: ctx.getUniformLocation(shaderProgramMandelbrotB, "uScale"),
         uaMandelbrotB: ctx.getUniformLocation(shaderProgramMandelbrotB, "a"),
         ubMandelbrotB: ctx.getUniformLocation(shaderProgramMandelbrotB, "b"),
+        ucMandelbrotB: ctx.getUniformLocation(shaderProgramMandelbrotB, "c"),
         uAMandelbrotB: ctx.getUniformLocation(shaderProgramMandelbrotB, "uA"),
         uBMandelbrotB: ctx.getUniformLocation(shaderProgramMandelbrotB, "uB"),
     };
@@ -454,8 +510,8 @@ function paint(stuff) {
     ctx.vertexAttribPointer(stuff.aVertexPositionPoints, 3, ctx.FLOAT, false, 0, 0);
     ctx.bindBuffer(ctx.ARRAY_BUFFER, stuff.vertexBufferABPoints);
     ctx.enableVertexAttribArray(stuff.aABPositionPoints);
-    ctx.vertexAttribPointer(stuff.aABPositionPoints, 2, ctx.FLOAT, false, 0, 0);
-    ctx.drawArrays(ctx.POINTS, 0, 3);
+    ctx.vertexAttribPointer(stuff.aABPositionPoints, 4, ctx.FLOAT, false, 0, 0);
+    ctx.drawArrays(ctx.POINTS, 0, 5);
 
     // Draw the Mandelbrot set
     ctx.viewport(ctx.canvas.width / 2, 0, ctx.canvas.width / 2, ctx.canvas.height);
@@ -501,8 +557,8 @@ function paint(stuff) {
     ctx.vertexAttribPointer(stuff.aVertexPositionPoints, 3, ctx.FLOAT, false, 0, 0);
     ctx.bindBuffer(ctx.ARRAY_BUFFER, stuff.vertexBufferABPoints);
     ctx.enableVertexAttribArray(stuff.aABPositionPoints);
-    ctx.vertexAttribPointer(stuff.aABPositionPoints, 2, ctx.FLOAT, false, 0, 0);
-    ctx.drawArrays(ctx.POINTS, 3, 2);
+    ctx.vertexAttribPointer(stuff.aABPositionPoints, 4, ctx.FLOAT, false, 0, 0);
+    ctx.drawArrays(ctx.POINTS, 5, 2);
 }
 
 
