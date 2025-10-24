@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rational Quadratic Julia Sets</title>
+    <script>
+"use strict";
+
+let params = {
+    fixedPoints: [
+        [-1.0, 0.0],
+        [0.0, 0.0],
+        [1.0, 0.0]
+    ],
+    G: [1.0, 0.0],
+    H: [1.0, 0.0],
+    center: [0.0, 0.0],
+    scale: 0.2,
+    draggingPoint: 0,
+    draggingFlip: true,
+};
+let glStuff = null;
+        
+function setup() {
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("webgl");
+    ctx.clearColor(1.0, 0.9, 0.9, 1.0);
+
+    // Vertex Shader program - mark fixed points
+    const vsSourcePoints = `
+        attribute vec3 aVertexPosition;
+        attribute vec4 aABPosition;
+        uniform vec2 uCenter;
+        uniform float uScale;
+        uniform vec2 uPoint;
+        uniform vec2 a;
+        uniform vec2 b;
+        uniform vec2 c;
+        uniform vec2 uG;
+        uniform vec2 uH;
+
+        vec2 csqrt(vec2 z) {
+            float r = length(z);
+            float theta = atan(z.y, z.x);
+            return vec2(
+                sqrt(r) * cos(theta / 2.0),
+                sqrt(r) * sin(theta / 2.0)
+            );
+        }
+
+        vec2 mul(vec2 x, vec2 y) {
+            return vec2(
+                x.x * y.x - x.y * y.y,
+                x.x * y.y + x.y * y.x);
+        }
+
+        vec2 div(vec2 x, vec2 y) {
+            float denom = y.x * y.x + y.y * y.y;
+            return vec2(
+                (x.x * y.x + x.y * y.y) / denom,
+                (x.y * y.x - x.x * y.y) / denom);
+        }
+
+        vec4 solve_quadratic(vec2 a, vec2 b, vec2 c) {
+            vec2 discriminant = csqrt(mul(b, b) - 4.0 * mul(a, c));
+            vec2 root1 = div(-b + discriminant, 2.0 * a);
+            vec2 root2 = div(-b - discriminant, 2.0 * a);
+            return vec4(root1, root2);  // return both roots packed together
+        }
+
+        void main(void) {
+            vec2 A = div(vec2(1.0, 0.0), uG);
+            vec2 D = A - (a + b + c);
+            vec2 B = div(vec2(1.0, 0.0), uH);
+            vec2 E = B + mul(a, b) + mul(a, c) + mul(b, c);
+            vec2 C = mul(a, mul(b, c));
+
+            vec4 roots = solve_quadratic(
+                mul(A, D) - B,
+                2.0 * (mul(A,E) - C),
+                mul(B, E) - mul(C, D)
+            );
+
+            gl_Position = vec4(
+                (a * aVertexPosition.x + b * aVertexPosition.y + c * aVertexPosition.z + roots.xy * aABPosition.x + roots.zw * aABPosition.y + uG * aABPosition.z + uH * aABPosition.w) * uScale + uCenter,
+                0.0,
+                1.0);
+            gl_PointSize = 7.0;
+        }
+    `;
+    // Fragment Shader program - mark fixed points
+    const fsSourcePoints = `
+        precision mediump float;
+        void main(void) {
+            gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+        }
+    `;
+
+    // Julia Vertex shader program
+    const vsSource = `
+        precision mediump float;
+        attribute vec2 aVertexPosition;
+        uniform vec2 uCenter;
+        uniform float uScale;
+        uniform vec2 a;
+        uniform vec2 b;
+        uniform vec2 c;
+        uniform vec2 uG;
+        uniform vec2 uH;
+        varying vec2 vPosition;
+        varying vec2 A;
+        varying vec2 B;
+        varying vec2 C;
+        varying vec2 D;
+        varying vec2 E;
+
+        vec2 mul(vec2 x, vec2 y) {
+            return vec2(
+                x.x * y.x - x.y * y.y,
+                x.x * y.y + x.y * y.x);
+        }
+
+        vec2 div(vec2 x, vec2 y) {
+            float denom = y.x * y.x + y.y * y.y;
+            return vec2(
+                (x.x * y.x + x.y * y.y) / denom,
+                (x.y * y.x - x.x * y.y) / denom);
+        }
+
+        void main(void) {
+            gl_Position = vec4(aVertexPosition, 0.0, 1.0);
+            vPosition = (aVertexPosition - uCenter) / uScale;
+            A = div(vec2(1.0, 0.0), uG);
+            D = A - (a + b + c);
+            B = div(vec2(1.0, 0.0), uH);
+            E = B + mul(a, b) + mul(a, c) + mul(b, c);
+            C = mul(a, mul(b, c));
+        }
+    `;
+    // Julia Fragment shader program
+    const fsSource = `
+        precision mediump float;
+        uniform vec2 a;
+        uniform vec2 b;
+        uniform vec2 c;
+        varying vec2 vPosition;
+        varying vec2 A;
+        varying vec2 B;
+        varying vec2 C;
+        varying vec2 D;
+        varying vec2 E;
+
+        vec2 mul(vec2 x, vec2 y) {
+            return vec2(
+                x.x * y.x - x.y * y.y,
+                x.x * y.y + x.y * y.x);
+        }
+
+        vec2 div(vec2 x, vec2 y) {
+            float denom = y.x * y.x + y.y * y.y;
+            return vec2(
+                (x.x * y.x + x.y * y.y) / denom,
+                (x.y * y.x - x.x * y.y) / denom);
+        }
+
+        float mandelbrot(
+            vec2 A,
+            vec2 B,
+            vec2 C,
+            vec2 D,
+            vec2 E,
+            vec2 z0
+        ) {
+            vec2 z = z0;
+            const int max_iteration = 200;
+            int iter = 0;
+            vec2 prevPrevZ = vec2(100000.0, 0.0);
+            vec2 prevZ = vec2(-100000.0, 0.0);
+            for (int iteration = 0; iteration < max_iteration; iteration++) {
+                vec2 z2 = mul(z, z);
+                z = div(
+                    mul(A, z2) + mul(B, z) + C,
+                    z2 + mul(D, z) + E
+                );
+                if (length(z - prevPrevZ) > 0.1) {
+                    iter++;
+                }
+                prevPrevZ = prevZ;
+                prevZ = z;
+            }
+            float color = 1.0 - sqrt(float(iter) / float(max_iteration));
+            return color;
+        }
+
+        void main(void) {
+            float color = mandelbrot(A, B, C, D, E, vPosition);
+            gl_FragColor = vec4(color, color, color, 1.0);
+        }
+    `;
+
+    // Mandelbrot vertex shader program
+    const vsSourceMandelbrotA = `
+        precision mediump float;
+        attribute vec2 aVertexPosition;
+        uniform vec2 uCenter;
+        uniform float uScale;
+        uniform vec2 a;
+        uniform vec2 b;
+        uniform vec2 c;
+        uniform vec2 uG;
+        uniform vec2 uH;
+        varying vec2 va;
+        varying vec2 vb;
+        varying vec2 vc;
+        varying vec2 vG;
+        varying vec2 vH;
+
+        void main(void) {
+            gl_Position = vec4(aVertexPosition, 0.0, 1.0);
+            va = a;
+            vb = b;
+            vc = c;
+            vG = (aVertexPosition - uCenter) / uScale;
+            vH = uH;
+        }
+    `;
+
+    // Mandelbrot vertex shader program
+    const vsSourceMandelbrotB = `
+        precision mediump float;
+        attribute vec2 aVertexPosition;
+        uniform vec2 uCenter;
+        uniform float uScale;
+        uniform vec2 a;
+        uniform vec2 b;
+        uniform vec2 c;
+        uniform vec2 uG;
+        uniform vec2 uH;
+        varying vec2 va;
+        varying vec2 vb;
+        varying vec2 vc;
+        varying vec2 vG;
+        varying vec2 vH;
+
+        void main(void) {
+            gl_Position = vec4(aVertexPosition, 0.0, 1.0);
+            va = a;
+            vb = b;
+            vc = c;
+            vG = uG;
+            vH = (aVertexPosition - uCenter) / uScale;
+        }
+    `;
+
+    // Mandelbrot fragment shader program
+    const fsSourceMandelbrot = `
+        precision mediump float;
+        varying vec2 va;
+        varying vec2 vb;
+        varying vec2 vc;
+        varying vec2 vG;
+        varying vec2 vH;
+        varying vec2 vPosition;
+
+        vec2 csqrt(vec2 z) {
+            float r = length(z);
+            float theta = atan(z.y, z.x);
+            return vec2(
+                sqrt(r) * cos(theta / 2.0),
+                sqrt(r) * sin(theta / 2.0)
+            );
+        }
+
+        vec2 mul(vec2 x, vec2 y) {
+            return vec2(
+                x.x * y.x - x.y * y.y,
+                x.x * y.y + x.y * y.x);
+        }
+
+        vec2 div(vec2 x, vec2 y) {
+            float denom = y.x * y.x + y.y * y.y;
+            return vec2(
+                (x.x * y.x + x.y * y.y) / denom,
+                (x.y * y.x - x.x * y.y) / denom);
+        }
+
+        vec4 solve_quadratic(vec2 a, vec2 b, vec2 c) {
+            vec2 discriminant = csqrt(mul(b, b) - 4.0 * mul(a, c));
+            vec2 root1 = div(-b + discriminant, 2.0 * a);
+            vec2 root2 = div(-b - discriminant, 2.0 * a);
+            return vec4(root1, root2);  // return both roots packed together
+        }
+
+        float mandelbrot(
+            vec2 A,
+            vec2 B,
+            vec2 C,
+            vec2 D,
+            vec2 E,
+            vec2 z0
+        ) {
+            vec2 z = z0;
+            const int max_iteration = 200;
+            int iter = 0;
+            vec2 prevPrevZ = vec2(100000.0, 0.0);
+            vec2 prevZ = vec2(-100000.0, 0.0);
+            for (int iteration = 0; iteration < max_iteration; iteration++) {
+                vec2 z2 = mul(z, z);
+                z = div(
+                    mul(A, z2) + mul(B, z) + C,
+                    z2 + mul(D, z) + E
+                );
+                if (length(z - prevPrevZ) > 0.1) {
+                    iter++;
+                }
+                prevPrevZ = prevZ;
+                prevZ = z;
+            }
+            float color = 1.0 - sqrt(float(iter) / float(max_iteration));
+            return color;
+        }
+
+        void main(void) {
+            vec2 A = div(vec2(1.0, 0.0), vG);
+            vec2 D = A - (va + vb + vc);
+            vec2 B = div(vec2(1.0, 0.0), vH);
+            vec2 E = B + mul(va, vb) + mul(va, vc) + mul(vb, vc);
+            vec2 C = mul(va, mul(vb, vc));
+
+            vec4 roots = solve_quadratic(
+                mul(A, D) - B,
+                2.0 * (mul(A,E) - C),
+                mul(B, E) - mul(C, D)
+            );
+            float color = mandelbrot(A, B, C, D, E, roots.xy) + 
+                          mandelbrot(A, B, C, D, E, roots.zw);
+            color = color / 2.0;
+            gl_FragColor = vec4(color, color, color, 1.0);
+        }
+    `;
+
+
+    // Initialize shaders
+    const vertexShaderPoints = ctx.createShader(ctx.VERTEX_SHADER);
+    ctx.shaderSource(vertexShaderPoints, vsSourcePoints);
+    ctx.compileShader(vertexShaderPoints);
+    const fragmentShaderPoints = ctx.createShader(ctx.FRAGMENT_SHADER);
+    ctx.shaderSource(fragmentShaderPoints, fsSourcePoints);
+    ctx.compileShader(fragmentShaderPoints);
+    const shaderProgramPoints = ctx.createProgram();
+    ctx.attachShader(shaderProgramPoints, vertexShaderPoints);
+    ctx.attachShader(shaderProgramPoints, fragmentShaderPoints);
+    ctx.linkProgram(shaderProgramPoints);
+
+    const vertexShader = ctx.createShader(ctx.VERTEX_SHADER);
+    ctx.shaderSource(vertexShader, vsSource);
+    ctx.compileShader(vertexShader);
+    const fragmentShader = ctx.createShader(ctx.FRAGMENT_SHADER);
+    ctx.shaderSource(fragmentShader, fsSource);
+    ctx.compileShader(fragmentShader);
+    if (!ctx.getShaderParameter(vertexShader, ctx.COMPILE_STATUS) ||
+        !ctx.getShaderParameter(fragmentShader, ctx.COMPILE_STATUS)) {
+        console.error("An error occurred compiling the shaders: " +
+            ctx.getShaderInfoLog(vertexShader) + " " +
+            ctx.getShaderInfoLog(fragmentShader));
+        return null;
+    }
+    const shaderProgram = ctx.createProgram();
+    ctx.attachShader(shaderProgram, vertexShader);
+    ctx.attachShader(shaderProgram, fragmentShader);
+    ctx.linkProgram(shaderProgram);
+    ctx.useProgram(shaderProgram);
+
+    const vertexProgramMandelbrotA = ctx.createShader(ctx.VERTEX_SHADER);
+    ctx.shaderSource(vertexProgramMandelbrotA, vsSourceMandelbrotA);
+    ctx.compileShader(vertexProgramMandelbrotA);
+    const fragmentProgramMandelbrotA = ctx.createShader(ctx.FRAGMENT_SHADER);
+    ctx.shaderSource(fragmentProgramMandelbrotA, fsSourceMandelbrot);
+    ctx.compileShader(fragmentProgramMandelbrotA);
+
+    const vertexProgramMandelbrotB = ctx.createShader(ctx.VERTEX_SHADER);
+    ctx.shaderSource(vertexProgramMandelbrotB, vsSourceMandelbrotB);
+    ctx.compileShader(vertexProgramMandelbrotB);
+    const fragmentProgramMandelbrotB = ctx.createShader(ctx.FRAGMENT_SHADER);
+    ctx.shaderSource(fragmentProgramMandelbrotB, fsSourceMandelbrot);
+    ctx.compileShader(fragmentProgramMandelbrotB);
+    if (!ctx.getShaderParameter(vertexProgramMandelbrotA, ctx.COMPILE_STATUS) ||
+        !ctx.getShaderParameter(fragmentProgramMandelbrotA, ctx.COMPILE_STATUS)) {
+        console.error("An error occurred compiling the shaders: " +
+            ctx.getShaderInfoLog(vertexProgramMandelbrotA) + " " +
+            ctx.getShaderInfoLog(fragmentProgramMandelbrotA));
+        return null;
+    }
+    const shaderProgramMandelbrotA = ctx.createProgram();
+    ctx.attachShader(shaderProgramMandelbrotA, vertexProgramMandelbrotA);
+    ctx.attachShader(shaderProgramMandelbrotA, fragmentProgramMandelbrotA);
+    ctx.linkProgram(shaderProgramMandelbrotA);
+    const shaderProgramMandelbrotB = ctx.createProgram();
+    ctx.attachShader(shaderProgramMandelbrotB, vertexProgramMandelbrotB);
+    ctx.attachShader(shaderProgramMandelbrotB, fragmentProgramMandelbrotB);
+    ctx.linkProgram(shaderProgramMandelbrotB);
+
+    // Set up square vertices
+    const vertices = new Float32Array([
+        -1, -1,
+         1, -1,
+        -1,  1,
+         1,  1,
+    ]);
+    const vertexBuffer = ctx.createBuffer();
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, vertexBuffer);
+    ctx.bufferData(ctx.ARRAY_BUFFER, vertices, ctx.STATIC_DRAW);
+
+    // Set up point vertices
+    const pointVertices = new Float32Array([
+        1, 0, 0,
+        0, 1, 0,
+        0, 0, 1,
+        0, 0, 0,
+        0, 0, 0,
+        0, 0, 0,
+        0, 0, 0,
+    ]);
+    const vertexBufferPoints = ctx.createBuffer();
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, vertexBufferPoints);
+    ctx.bufferData(ctx.ARRAY_BUFFER, pointVertices, ctx.STATIC_DRAW);
+
+    const ABPointVertices = new Float32Array([
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1,
+    ]);
+    const vertexBufferABPoints = ctx.createBuffer();
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, vertexBufferABPoints);
+    ctx.bufferData(ctx.ARRAY_BUFFER, ABPointVertices, ctx.STATIC_DRAW);
+
+    return {
+        shaderProgram,
+        shaderProgramPoints,
+        aVertexPosition: ctx.getAttribLocation(shaderProgram, "aVertexPosition"),
+        uCenter: ctx.getUniformLocation(shaderProgram, "uCenter"),
+        uScale: ctx.getUniformLocation(shaderProgram, "uScale"),
+        ua: ctx.getUniformLocation(shaderProgram, "a"),
+        ub: ctx.getUniformLocation(shaderProgram, "b"),
+        uc: ctx.getUniformLocation(shaderProgram, "c"),
+        uG: ctx.getUniformLocation(shaderProgram, "uG"),
+        uH: ctx.getUniformLocation(shaderProgram, "uH"),
+        vertexBuffer,
+        vertexBufferPoints,
+        vertexBufferABPoints,
+        aVertexPositionPoints: ctx.getAttribLocation(shaderProgramPoints, "aVertexPosition"),
+        aABPositionPoints: ctx.getAttribLocation(shaderProgramPoints, "aABPosition"),
+        uCenterPoints: ctx.getUniformLocation(shaderProgramPoints, "uCenter"),
+        uScalePoints: ctx.getUniformLocation(shaderProgramPoints, "uScale"),
+        uaPoints: ctx.getUniformLocation(shaderProgramPoints, "a"),
+        ubPoints: ctx.getUniformLocation(shaderProgramPoints, "b"),
+        ucPoints: ctx.getUniformLocation(shaderProgramPoints, "c"),
+        uGPoints: ctx.getUniformLocation(shaderProgramPoints, "uG"),
+        uHPoints: ctx.getUniformLocation(shaderProgramPoints, "uH"),
+        shaderProgramMandelbrotA,
+        vertexProgramMandelbrotA,
+        aVertexPositionMandelbrotA: ctx.getAttribLocation(shaderProgramMandelbrotA, "aVertexPosition"),
+        uCenterMandelbrotA: ctx.getUniformLocation(shaderProgramMandelbrotA, "uCenter"),
+        uScaleMandelbrotA: ctx.getUniformLocation(shaderProgramMandelbrotA, "uScale"),
+        uaMandelbrotA: ctx.getUniformLocation(shaderProgramMandelbrotA, "a"),
+        ubMandelbrotA: ctx.getUniformLocation(shaderProgramMandelbrotA, "b"),
+        ucMandelbrotA: ctx.getUniformLocation(shaderProgramMandelbrotA, "c"),
+        uGMandelbrotA: ctx.getUniformLocation(shaderProgramMandelbrotA, "uG"),
+        uHMandelbrotA: ctx.getUniformLocation(shaderProgramMandelbrotA, "uH"),
+        shaderProgramMandelbrotB,
+        vertexProgramMandelbrotB,
+        aVertexPositionMandelbrotB: ctx.getAttribLocation(shaderProgramMandelbrotB, "aVertexPosition"),
+        uCenterMandelbrotB: ctx.getUniformLocation(shaderProgramMandelbrotB, "uCenter"),
+        uScaleMandelbrotB: ctx.getUniformLocation(shaderProgramMandelbrotB, "uScale"),
+        uaMandelbrotB: ctx.getUniformLocation(shaderProgramMandelbrotB, "a"),
+        ubMandelbrotB: ctx.getUniformLocation(shaderProgramMandelbrotB, "b"),
+        ucMandelbrotB: ctx.getUniformLocation(shaderProgramMandelbrotB, "c"),
+        uGMandelbrotB: ctx.getUniformLocation(shaderProgramMandelbrotB, "uG"),
+        uHMandelbrotB: ctx.getUniformLocation(shaderProgramMandelbrotB, "uH"),
+    };
+}
+
+function paint(stuff) {
+    const ctx = document.getElementById("canvas").getContext("webgl");
+    ctx.clear(ctx.COLOR_BUFFER_BIT);
+    ctx.viewport(0, 0, ctx.canvas.width / 2, ctx.canvas.height);
+    
+    // Draw the Julia set
+    ctx.useProgram(stuff.shaderProgram);
+    ctx.uniform2f(stuff.uCenter, params.center[0], params.center[1]);
+    ctx.uniform1f(stuff.uScale, params.scale);
+    ctx.uniform2f(stuff.ua, params.fixedPoints[0][0], params.fixedPoints[0][1]);
+    ctx.uniform2f(stuff.ub, params.fixedPoints[1][0], params.fixedPoints[1][1]);
+    ctx.uniform2f(stuff.uc, params.fixedPoints[2][0], params.fixedPoints[2][1]);
+    ctx.uniform2f(stuff.uG, params.G[0], params.G[1]);
+    ctx.uniform2f(stuff.uH, params.H[0], params.H[1]);
+
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, stuff.vertexBuffer);
+    ctx.enableVertexAttribArray(stuff.aVertexPosition);
+    ctx.vertexAttribPointer(stuff.aVertexPosition, 2, ctx.FLOAT, false, 0, 0);
+    ctx.drawArrays(ctx.TRIANGLE_STRIP, 0, 4);
+    
+    // Draw the dragging points
+    ctx.useProgram(stuff.shaderProgramPoints);
+    ctx.uniform2f(stuff.uCenterPoints, params.center[0], params.center[1]);
+    ctx.uniform1f(stuff.uScalePoints, params.scale);
+    ctx.uniform2f(stuff.uaPoints, params.fixedPoints[0][0], params.fixedPoints[0][1]);
+    ctx.uniform2f(stuff.ubPoints, params.fixedPoints[1][0], params.fixedPoints[1][1]);
+    ctx.uniform2f(stuff.ucPoints, params.fixedPoints[2][0], params.fixedPoints[2][1]);
+    ctx.uniform2f(stuff.uGPoints, params.G[0], params.G[1]);
+    ctx.uniform2f(stuff.uHPoints, params.H[0], params.H[1]);
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, stuff.vertexBufferPoints);
+    ctx.enableVertexAttribArray(stuff.aVertexPositionPoints);
+    ctx.vertexAttribPointer(stuff.aVertexPositionPoints, 3, ctx.FLOAT, false, 0, 0);
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, stuff.vertexBufferABPoints);
+    ctx.enableVertexAttribArray(stuff.aABPositionPoints);
+    ctx.vertexAttribPointer(stuff.aABPositionPoints, 4, ctx.FLOAT, false, 0, 0);
+    ctx.drawArrays(ctx.POINTS, 0, 5);
+
+    // Draw the Mandelbrot set
+    ctx.viewport(ctx.canvas.width / 2, 0, ctx.canvas.width / 2, ctx.canvas.height);
+    if ((params.draggingPoint === 0) === !params.draggingFlip) {
+        ctx.useProgram(stuff.shaderProgramMandelbrotA);
+        ctx.uniform2f(stuff.uCenterMandelbrotA, params.center[0], params.center[1]);
+        ctx.uniform1f(stuff.uScaleMandelbrotA, params.scale);
+        ctx.uniform2f(stuff.uaMandelbrotA, params.fixedPoints[0][0], params.fixedPoints[0][1]);
+        ctx.uniform2f(stuff.ubMandelbrotA, params.fixedPoints[1][0], params.fixedPoints[1][1]);
+        ctx.uniform2f(stuff.ucMandelbrotA, params.fixedPoints[2][0], params.fixedPoints[2][1]);
+        ctx.uniform2f(stuff.uGMandelbrotA, params.G[0], params.G[1]);
+        ctx.uniform2f(stuff.uHMandelbrotA, params.H[0], params.H[1]);
+        ctx.bindBuffer(ctx.ARRAY_BUFFER, stuff.vertexBuffer);
+        ctx.enableVertexAttribArray(stuff.aVertexPositionMandelbrotA);
+        ctx.vertexAttribPointer(stuff.aVertexPositionMandelbrotA, 2, ctx.FLOAT, false, 0, 0);
+        ctx.drawArrays(ctx.TRIANGLE_STRIP, 0, 4);
+    } else if ((params.draggingPoint === 1) === !params.draggingFlip) {
+        ctx.useProgram(stuff.shaderProgramMandelbrotB);
+        ctx.uniform2f(stuff.uCenterMandelbrotB, params.center[0], params.center[1]);
+        ctx.uniform1f(stuff.uScaleMandelbrotB, params.scale);
+        ctx.uniform2f(stuff.uaMandelbrotB, params.fixedPoints[0][0], params.fixedPoints[0][1]);
+        ctx.uniform2f(stuff.ubMandelbrotB, params.fixedPoints[1][0], params.fixedPoints[1][1]);
+        ctx.uniform2f(stuff.ucMandelbrotB, params.fixedPoints[2][0], params.fixedPoints[2][1]);
+        ctx.uniform2f(stuff.uGMandelbrotB, params.G[0], params.G[1]);
+        ctx.uniform2f(stuff.uHMandelbrotB, params.H[0], params.H[1]);
+        ctx.bindBuffer(ctx.ARRAY_BUFFER, stuff.vertexBuffer);
+        ctx.enableVertexAttribArray(stuff.aVertexPositionMandelbrotB);
+        ctx.vertexAttribPointer(stuff.aVertexPositionMandelbrotB, 2, ctx.FLOAT, false, 0, 0);
+        ctx.drawArrays(ctx.TRIANGLE_STRIP, 0, 4);
+    }
+    
+    // Draw the dragging point on the mandelbrot set
+    ctx.useProgram(stuff.shaderProgramPoints);
+    ctx.uniform2f(stuff.uCenterPoints, params.center[0], params.center[1]);
+    ctx.uniform1f(stuff.uScalePoints, params.scale);
+    ctx.uniform2f(stuff.uaPoints, params.fixedPoints[0][0], params.fixedPoints[0][1]);
+    ctx.uniform2f(stuff.ubPoints, params.fixedPoints[1][0], params.fixedPoints[1][1]);
+    ctx.uniform2f(stuff.ucPoints, params.fixedPoints[2][0], params.fixedPoints[2][1]);
+    ctx.uniform2f(stuff.uGPoints, params.G[0], params.G[1]);
+    ctx.uniform2f(stuff.uHPoints, params.H[0], params.H[1]);
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, stuff.vertexBufferPoints);
+    ctx.enableVertexAttribArray(stuff.aVertexPositionPoints);
+    ctx.vertexAttribPointer(stuff.aVertexPositionPoints, 3, ctx.FLOAT, false, 0, 0);
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, stuff.vertexBufferABPoints);
+    ctx.enableVertexAttribArray(stuff.aABPositionPoints);
+    ctx.vertexAttribPointer(stuff.aABPositionPoints, 4, ctx.FLOAT, false, 0, 0);
+    ctx.drawArrays(ctx.POINTS, 5, 2);
+}
+
+
+function mousedown() {
+    const x = event.clientX;
+    const y = event.clientY;
+    params.draggingFlip = !event.shiftKey;
+    update_point(x,y,true);
+}
+
+function mousemove() {
+    if (event.buttons === 1) {
+        const x = event.clientX;
+        const y = event.clientY;
+        params.draggingFlip = !event.shiftKey;
+        update_point(x, y, false);
+    }
+}
+
+function update_point(x, y, mousedown) {
+    const rect = event.target.getBoundingClientRect();
+    const canvasX = x - rect.left - rect.width / 2;
+    const canvasY = y - rect.top;
+    const ndcX = (canvasX / rect.width * 2) * 2 - 1;
+    const ndcY = 1 - (canvasY / rect.height) * 2;
+
+    if (mousedown) {
+        // Find nearest point
+        let minDist = 1000;
+        const points = [params.G, params.H];
+        for (let i = 0; i < points.length; i++) {
+            const dx = ndcX / params.scale - params.center[0] - points[i][0];
+            const dy = ndcY / params.scale - params.center[1] - points[i][1];
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < minDist) {
+                minDist = dist;
+                params.draggingPoint = i;
+            }
+        }
+    }
+
+    if (params.draggingPoint === -1) {
+        return;
+    }
+
+    if (params.draggingPoint === 0) {
+        params.G = [
+            ndcX / params.scale - params.center[0],
+            ndcY / params.scale - params.center[1]
+        ];
+    } else if (params.draggingPoint === 1) {
+        params.H = [
+            ndcX / params.scale - params.center[0],
+            ndcY / params.scale - params.center[1]
+        ];
+    }
+    paint(glStuff);
+}
+
+function start() {
+    glStuff = setup();
+    paint(glStuff);
+}
+
+window.onload = start;
+    </script>
+</head>
+<body>
+    <canvas id="canvas" width="1600" height="800" onmousedown="mousedown()" onmousemove="mousemove()"></canvas>
+</body>
+</html>
