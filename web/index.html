@@ -388,39 +388,17 @@ function doubletouch() {
     const angleDelta = newAngle - prevAngle;
     const scaleX = Math.cos(angleDelta) * prevDist / newDist;
     const scaleY = Math.sin(angleDelta) * prevDist / newDist;
-    if (params.mandelbrot) {
-        if (params.drag === "ca" || params.drag === "all") {
-            params.ascale = [
-                params.ascale[0] * scaleX - params.ascale[1] * scaleY,
-                params.ascale[0] * scaleY + params.ascale[1] * scaleX
-            ];
-        }
-        if (params.drag === "bc" || params.drag === "all") {
-            params.bscale = [
-                params.bscale[0] * scaleX - params.bscale[1] * scaleY,
-                params.bscale[0] * scaleY + params.bscale[1] * scaleX
-            ];
-        }
-        if (params.drag === "ab") {
-            let aincrx = params.ascale[0] * scaleX - params.ascale[1] * scaleY - params.ascale[0];
-            let aincry = params.ascale[0] * scaleY + params.ascale[1] * scaleX - params.ascale[1];
-            let bincrx = params.bscale[0] * scaleX - params.bscale[1] * scaleY - params.bscale[0];
-            let bincry = params.bscale[0] * scaleY + params.bscale[1] * scaleX - params.bscale[1];
-            let incrx = (aincrx + bincrx) / 2;
-            let incry = (aincry + bincry) / 2;
-            params.ascale[0] += incrx;
-            params.ascale[1] += incry;
-            params.bscale[0] -= incrx;
-            params.bscale[1] -= incry;
-        }
-    } else {
-        params.z0Scale /= scale;
-    }
-    paint();
+    scale_rotate(scaleX, scaleY);
+
+    const deltaX = -((touch1.pageX + touch2.pageX) / 2 - (prevTouch1.pageX + prevTouch2.pageX) / 2) * 0.005;
+    const deltaY = ((touch1.pageY + touch2.pageY) / 2 - (prevTouch1.pageY + prevTouch2.pageY) / 2) * 0.005;
+    move(deltaX, deltaY);
+
     prevTouch1.pageX = touch1.pageX;
     prevTouch1.pageY = touch1.pageY;
     prevTouch2.pageX = touch2.pageX;
     prevTouch2.pageY = touch2.pageY;
+    paint();
 }
 
 function touchmove() {
@@ -441,23 +419,67 @@ function touchmove() {
     const deltaY = (changedTouch.pageY - ongoingTouch.pageY) * 0.005;
     ongoingTouch.pageX = changedTouch.pageX;
     ongoingTouch.pageY = changedTouch.pageY;
+    move(deltaX, deltaY);
+    paint();
+}
+
+function scale_rotate(scaleX, scaleY) {
+    if (params.mandelbrot) {
+        if (params.drag === "ca") {
+            let c0 = -params.ascale[0] - params.bscale[0];
+            let c1 = -params.ascale[1] - params.bscale[1];
+            let cincrx = c0 * scaleX - c1 * scaleY - c0;
+            let cincry = c0 * scaleY + c1 * scaleX - c1;
+            params.ascale[0] -= cincrx;
+            params.ascale[1] -= cincry;
+        }
+        if (params.drag === "bc") {
+            params.bscale = [
+                params.bscale[0] * scaleX - params.bscale[1] * scaleY,
+                params.bscale[0] * scaleY + params.bscale[1] * scaleX
+            ];
+        }
+        if (params.drag === "ab") {
+            let aincrx = params.ascale[0] * scaleX - params.ascale[1] * scaleY - params.ascale[0];
+            let aincry = params.ascale[0] * scaleY + params.ascale[1] * scaleX - params.ascale[1];
+            params.ascale[0] += aincrx;
+            params.ascale[1] += aincry;
+            params.bscale[0] -= aincrx;
+            params.bscale[1] -= aincry;
+        }
+        if (params.drag === "all") {
+            params.ascale = [
+                params.ascale[0] * scaleX - params.ascale[1] * scaleY,
+                params.ascale[0] * scaleY + params.ascale[1] * scaleX
+            ];
+            params.bscale = [
+                params.bscale[0] * scaleX - params.bscale[1] * scaleY,
+                params.bscale[0] * scaleY + params.bscale[1] * scaleX
+            ];
+        }
+    } else {
+        params.z0Scale /= scale;
+    }
+}
+
+function move(deltaX, deltaY) {
     if (params.drag === "ca") {
-        params.a[0] += 2 * deltaX * params.ascale[0] - deltaY * params.ascale[1];
-        params.a[1] += 2 * deltaY * params.ascale[0] + deltaX * params.ascale[1];
-    }
-    if (params.drag === "bc") {
-        params.b[0] += 2 * deltaX * params.bscale[0] - deltaY * params.bscale[1];
-        params.b[1] += 2 * deltaY * params.bscale[0] + deltaX * params.bscale[1];
-    }
-    if (params.drag === "ab") {
         const cscale = [
             (params.ascale[0] + params.bscale[0]),
-            (params.ascale[1] + params.bscale[1]),
-        ]
+            (params.ascale[1] + params.bscale[1])
+        ];
         params.a[0] += deltaX * cscale[0] - deltaY * cscale[1];
         params.a[1] += deltaY * cscale[0] + deltaX * cscale[1];
-        params.b[0] -= deltaX * cscale[0] - deltaY * cscale[1];
-        params.b[1] -= deltaY * cscale[0] + deltaX * cscale[1];
+    }
+    if (params.drag === "bc") {
+        params.b[0] += deltaX * params.bscale[0] - deltaY * params.bscale[1];
+        params.b[1] += deltaY * params.bscale[0] + deltaX * params.bscale[1];
+    }
+    if (params.drag === "ab") {
+        params.a[0] += deltaX * params.ascale[0] - deltaY * params.ascale[1];
+        params.a[1] += deltaY * params.ascale[0] + deltaX * params.ascale[1];
+        params.b[0] -= deltaX * params.ascale[0] - deltaY * params.ascale[1];
+        params.b[1] -= deltaY * params.ascale[0] + deltaX * params.ascale[1];
     }
     if (params.drag === "all") {
         params.a[0] += deltaX * params.ascale[0] - deltaY * params.ascale[1];
@@ -465,7 +487,6 @@ function touchmove() {
         params.b[0] += deltaX * params.bscale[0] - deltaY * params.bscale[1];
         params.b[1] += deltaY * params.bscale[0] + deltaX * params.bscale[1];
     }
-    paint();
 }
 
 function start() {
