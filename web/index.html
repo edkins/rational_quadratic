@@ -23,8 +23,101 @@ let params = {
     color: true,
     drag: "all",
     drag_start: [0.0, 0.0],
+    timer: null,
+    last_moved: null
 };
 let glStuff = null;
+let touches = new Map();
+
+function fragmentShaderSource(max_iter, max_period) {
+    return `
+        precision highp float;
+        varying vec2 a;
+        varying vec2 b;
+        varying vec2 z0;
+        uniform bool uMandelbrot;
+        uniform bool uColor;
+        uniform float uBailout;
+        uniform float uBailin;
+
+        const vec2 two = vec2(2.0, 0.0);
+        const vec2 one = vec2(1.0, 0.0);
+
+        vec2 csqrt(vec2 z) {
+            float r = length(z);
+            float theta = atan(z.y, z.x);
+            return vec2(
+                sqrt(r) * cos(theta / 2.0),
+                sqrt(r) * sin(theta / 2.0)
+            );
+        }
+
+        vec2 mul(vec2 x, vec2 y) {
+            return vec2(
+                x.x * y.x - x.y * y.y,
+                x.x * y.y + x.y * y.x);
+        }
+
+        vec2 div(vec2 x, vec2 y) {
+            float denom = y.x * y.x + y.y * y.y;
+            return vec2(
+                (x.x * y.x + x.y * y.y) / denom,
+                (x.y * y.x - x.x * y.y) / denom);
+        }
+
+        vec4 solve_quadratic(vec2 a, vec2 b, vec2 c) {
+            vec2 discriminant = csqrt(mul(b, b) - 4.0 * mul(a, c));
+            vec2 root1 = div(-b + discriminant, 2.0 * a);
+            vec2 root2 = div(-b - discriminant, 2.0 * a);
+            return vec4(root1, root2);  // return both roots packed together
+        }
+
+        vec4 mandelbrot(vec2 actual_z0) {
+            vec2 z = actual_z0;
+            const int max_iteration = ${max_iter};
+            int iter = 0;
+            vec3 color = vec3(0.0, 0.0, 0.0);
+            float delta = 1.0 / float(max_iteration);
+            for (int iteration = 0; iteration < max_iteration; iteration++) {
+                vec2 z2 = mul(z, z);
+                z = div(
+                    mul(a, z2) + mul(b - one, z),
+                    mul(a - one, z) + b
+                );
+                if (length(z) > uBailout) {
+                    return vec4(1.0, 0.0, 0.0, 1.0);
+                }
+            }
+            vec2 prevZ = z;
+            for (int iteration = 0; iteration < ${max_period}; iteration++) {
+                vec2 z2 = mul(z, z);
+                z = div(
+                    mul(a, z2) + mul(b - one, z),
+                    mul(a - one, z) + b
+                );
+                if (length(z - prevZ) < uBailin) {
+                    color = vec3(1.0 + cos(float(iteration) * 3.88), 1.0 + cos(float(iteration) * 3.88 + 2.0), 1.0 + cos(float(iteration) * 3.88 + 4.0)) * (0.25 + 0.05 * z.y);
+                    break;
+                }
+            }
+            return vec4(color, 1.0);
+        }
+
+        void main(void) {
+            if (uMandelbrot) {
+                vec4 roots = solve_quadratic(
+                    mul(a, a - one),
+                    2.0 * mul(a, b),
+                    mul(b, b - one)
+                );
+                gl_FragColor = 0.5 * mandelbrot(roots.xy) + 
+                               0.5 * mandelbrot(roots.zw);
+            } else {
+                gl_FragColor = mandelbrot(z0);
+            }
+        }
+    `;
+}
         
 function setup() {
     const canvas = document.getElementById("canvas");
@@ -61,92 +154,8 @@ function setup() {
     `;
 
     // Mandelbrot/Julia fragment shader program
-    const fsSource = `
-        precision highp float;
-        varying vec2 a;
-        varying vec2 b;
-        varying vec2 z0;
-        uniform bool uMandelbrot;
-        uniform bool uColor;
-
-        const vec2 two = vec2(2.0, 0.0);
-        const vec2 one = vec2(1.0, 0.0);
-
-        vec2 csqrt(vec2 z) {
-            float r = length(z);
-            float theta = atan(z.y, z.x);
-            return vec2(
-                sqrt(r) * cos(theta / 2.0),
-                sqrt(r) * sin(theta / 2.0)
-            );
-        }
-
-        vec2 mul(vec2 x, vec2 y) {
-            return vec2(
-                x.x * y.x - x.y * y.y,
-                x.x * y.y + x.y * y.x);
-        }
-
-        vec2 div(vec2 x, vec2 y) {
-            float denom = y.x * y.x + y.y * y.y;
-            return vec2(
-                (x.x * y.x + x.y * y.y) / denom,
-                (x.y * y.x - x.x * y.y) / denom);
-        }
-
-        vec4 solve_quadratic(vec2 a, vec2 b, vec2 c) {
-            vec2 discriminant = csqrt(mul(b, b) - 4.0 * mul(a, c));
-            vec2 root1 = div(-b + discriminant, 2.0 * a);
-            vec2 root2 = div(-b - discriminant, 2.0 * a);
-            return vec4(root1, root2);  // return both roots packed together
-        }
-
-        vec4 mandelbrot(vec2 actual_z0) {
-            vec2 z = actual_z0;
-            const int max_iteration = 200;
-            int iter = 0;
-            vec3 color = vec3(0.0, 0.0, 0.0);
-            float delta = 1.0 / float(max_iteration);
-            for (int iteration = 0; iteration < max_iteration; iteration++) {
-                vec2 z2 = mul(z, z);
-                z = div(
-                    mul(a, z2) + mul(b - one, z),
-                    mul(a - one, z) + b
-                );
-                if (length(z) > 100.0) {
-                    return vec4(1.0, 0.0, 0.0, 1.0);
-                }
-            }
-            vec2 prevZ = z;
-            for (int iteration = 0; iteration < 32; iteration++) {
-                vec2 z2 = mul(z, z);
-                z = div(
-                    mul(a, z2) + mul(b - one, z),
-                    mul(a - one, z) + b
-                );
-                if (length(z - prevZ) < 0.05) {
-                    color = vec3(1.0 + cos(float(iteration) * 3.88), 1.0 + cos(float(iteration) * 3.88 + 2.0), 1.0 + cos(float(iteration) * 3.88 + 4.0)) * (0.25 + 0. * z.y);
-                    break;
-                }
-            }
-            return vec4(color, 1.0);
-        }
-
-        void main(void) {
-            if (uMandelbrot) {
-                vec4 roots = solve_quadratic(
-                    mul(a, a - one),
-                    2.0 * mul(a, b),
-                    mul(b, b - one)
-                );
-                gl_FragColor = 0.5 * mandelbrot(roots.xy) + 
-                               0.5 * mandelbrot(roots.zw);
-            } else {
-                gl_FragColor = mandelbrot(z0);
-            }
-        }
-    `;
-
+    const fsSource = fragmentShaderSource(200, 32);
+    const fsSourceHigh = fragmentShaderSource(200 + 2*2*2*2*2*3*3*5, 100);
 
     // Initialize shaders
     const vertexShader = ctx.createShader(ctx.VERTEX_SHADER);
@@ -166,7 +175,20 @@ function setup() {
     ctx.attachShader(shaderProgram, vertexShader);
     ctx.attachShader(shaderProgram, fragmentShader);
     ctx.linkProgram(shaderProgram);
-    ctx.useProgram(shaderProgram);
+
+    // Initialize shaders (high iteration count)
+    const fragmentShaderHigh = ctx.createShader(ctx.FRAGMENT_SHADER);
+    ctx.shaderSource(fragmentShaderHigh, fsSourceHigh);
+    ctx.compileShader(fragmentShaderHigh);
+    if (!ctx.getShaderParameter(fragmentShaderHigh, ctx.COMPILE_STATUS)) {
+        console.error("An error occurred compiling the high iteration shader: " +
+            ctx.getShaderInfoLog(fragmentShaderHigh));
+        return null;
+    }
+    const shaderProgramHigh = ctx.createProgram();
+    ctx.attachShader(shaderProgramHigh, vertexShader);
+    ctx.attachShader(shaderProgramHigh, fragmentShaderHigh);
+    ctx.linkProgram(shaderProgramHigh);
 
     // Set up square vertices
     const vertices = new Float32Array([
@@ -180,28 +202,44 @@ function setup() {
     ctx.bufferData(ctx.ARRAY_BUFFER, vertices, ctx.STATIC_DRAW);
 
     return {
-        shaderProgram,
-        aVertexPosition: ctx.getAttribLocation(shaderProgram, "aVertexPosition"),
-        uMandelbrot: ctx.getUniformLocation(shaderProgram, "uMandelbrot"),
-        uz0: ctx.getUniformLocation(shaderProgram, "uz0"),
-        uz0Scale: ctx.getUniformLocation(shaderProgram, "uz0Scale"),
-        ua: ctx.getUniformLocation(shaderProgram, "ua"),
-        ub: ctx.getUniformLocation(shaderProgram, "ub"),
-        uascale: ctx.getUniformLocation(shaderProgram, "uascale"),
-        ubscale: ctx.getUniformLocation(shaderProgram, "ubscale"),
-        uColor: ctx.getUniformLocation(shaderProgram, "uColor"),
-        vertexBuffer,
+        main: {
+            shaderProgram,
+            aVertexPosition: ctx.getAttribLocation(shaderProgram, "aVertexPosition"),
+            uMandelbrot: ctx.getUniformLocation(shaderProgram, "uMandelbrot"),
+            uz0: ctx.getUniformLocation(shaderProgram, "uz0"),
+            uz0Scale: ctx.getUniformLocation(shaderProgram, "uz0Scale"),
+            ua: ctx.getUniformLocation(shaderProgram, "ua"),
+            ub: ctx.getUniformLocation(shaderProgram, "ub"),
+            uascale: ctx.getUniformLocation(shaderProgram, "uascale"),
+            ubscale: ctx.getUniformLocation(shaderProgram, "ubscale"),
+            uColor: ctx.getUniformLocation(shaderProgram, "uColor"),
+            uBailout: ctx.getUniformLocation(shaderProgram, "uBailout"),
+            uBailin: ctx.getUniformLocation(shaderProgram, "uBailin"),
+            vertexBuffer,
+        },
+        high: {
+            shaderProgram: shaderProgramHigh,
+            aVertexPosition: ctx.getAttribLocation(shaderProgramHigh, "aVertexPosition"),
+            uMandelbrot: ctx.getUniformLocation(shaderProgramHigh, "uMandelbrot"),
+            uz0: ctx.getUniformLocation(shaderProgramHigh, "uz0"),
+            uz0Scale: ctx.getUniformLocation(shaderProgramHigh, "uz0Scale"),
+            ua: ctx.getUniformLocation(shaderProgramHigh, "ua"),
+            ub: ctx.getUniformLocation(shaderProgramHigh, "ub"),
+            uascale: ctx.getUniformLocation(shaderProgramHigh, "uascale"),
+            ubscale: ctx.getUniformLocation(shaderProgramHigh, "ubscale"),
+            uColor: ctx.getUniformLocation(shaderProgramHigh, "uColor"),
+            uBailout: ctx.getUniformLocation(shaderProgramHigh, "uBailout"),
+            uBailin: ctx.getUniformLocation(shaderProgramHigh, "uBailin"),
+            vertexBuffer,
+        },
     };
 }
 
-function paint() {
-    const stuff = glStuff
-    const ctx = document.getElementById("canvas").getContext("webgl");
-    ctx.clear(ctx.COLOR_BUFFER_BIT);
-    ctx.viewport(0, 0, ctx.canvas.width, ctx.canvas.height);
-    
+function paintMandelbrot(ctx, stuff, bailout, bailin) {
     // Draw the Julia or Mandelbrot set
     ctx.useProgram(stuff.shaderProgram);
+    ctx.uniform1f(stuff.uBailout, bailout);
+    ctx.uniform1f(stuff.uBailin, bailin);
     if (params.mandelbrot) {
         ctx.uniform1i(stuff.uMandelbrot, true);
         ctx.uniform1f(stuff.uz0Scale, 0.0);
@@ -223,6 +261,20 @@ function paint() {
     ctx.enableVertexAttribArray(stuff.aVertexPosition);
     ctx.vertexAttribPointer(stuff.aVertexPosition, 2, ctx.FLOAT, false, 0, 0);
     ctx.drawArrays(ctx.TRIANGLE_STRIP, 0, 4);
+}
+
+function paint() {
+    const ctx = document.getElementById("canvas").getContext("webgl");
+    ctx.clear(ctx.COLOR_BUFFER_BIT);
+    ctx.viewport(0, 0, ctx.canvas.width, ctx.canvas.height);
+    
+    let reschedule = false;
+    if (params.last_moved === null || performance.now() - params.last_moved < 300) {
+        paintMandelbrot(ctx, glStuff.main, 100, 0.05);
+        reschedule = true;
+    } else {
+        paintMandelbrot(ctx, glStuff.high, 1000, 0.005);
+    }
 
     document.getElementById("button_ab").classList.remove("active");
     document.getElementById("button_bc").classList.remove("active");
@@ -237,6 +289,15 @@ function paint() {
     } else if (params.drag === "all") {
         document.getElementById("button_all").classList.add("active");
     }
+
+    if (reschedule) {
+        if (params.timer !== null) {
+            clearTimeout(params.timer);
+        }
+        params.timer = setTimeout(paint, 350);
+    } else {
+        params.timer = null;
+    }
 }
 
 function mousedown() {
@@ -248,96 +309,26 @@ function mousedown() {
 }
 
 function mousemove() {
+    const x = event.clientX;
+    const y = event.clientY;
     if (event.buttons === 1) {
-        const x = event.clientX;
-        const y = event.clientY;
-        update_point(-(x - params.drag_start[0]) / 1000, (y - params.drag_start[1]) / 1000, true, params.last_alternate);
-        params.drag_start = [x, y];
-    }
-
-    if (event.buttons === 2) {
-        const delta = event.deltaY * 0.001;
-        if (params.mandelbrot) {
-            if (params.drag === "a" || params.drag === "all") {
-                params.ascale[0] *= (1 + delta * 0.1);
-                params.ascale[1] *= (1 + delta * 0.1);
-            }
-            if (params.drag === "b" || params.drag === "all") {
-                params.bscale[0] *= (1 + delta * 0.1);
-                params.bscale[1] *= (1 + delta * 0.1);
-            }
-        } else {
-            params.z0Scale *= (1 + delta * 0.1);
-        }
+        move(
+            -(x - params.drag_start[0]) * 0.005,
+            (y - params.drag_start[1]) * 0.005
+        );
         paint();
     }
+    params.drag_start = [x, y];
     event.preventDefault();
 }
 
 function mousewheel() {
+    const delta = event.deltaY;
+    const scale = Math.exp(delta * 0.001);
+    scale_rotate(scale, 0);
+    paint();
+    event.preventDefault();
 }
-
-function update_point(x, y, relative, alternate) {
-    let ndcX = x;
-    let ndcY = y;
-    if (!relative) {
-        const rect = event.target.getBoundingClientRect();
-        const canvasX = x - rect.left;
-        const canvasY = y - rect.top;
-        ndcX = (canvasX / rect.width) * 2 - 1;
-        ndcY = 1 - (canvasY / rect.height) * 2;
-    }
-
-    if (params.mandelbrot) {
-        if (relative) {
-            params.a[0] += ndcX * params.ascale[0] - ndcY * params.ascale[1];
-            params.a[1] += ndcX * params.ascale[1] + ndcY * params.ascale[0];
-            params.b[0] += ndcX * params.bscale[0] - ndcY * params.bscale[1];
-            params.b[1] += ndcX * params.bscale[1] + ndcY * params.bscale[0];
-        } else {
-            params.a = [ndcX, ndcY];
-            params.b = [ndcX, ndcY];
-        }
-    }
-    params.last_alternate = alternate;
-
-    paint(glStuff);
-}
-
-function keydown() {
-    const key = event.key;
-    if (key === "ArrowLeft") {
-        update_point(-0.0005, 0, true, false);
-    } else if (key === "ArrowRight") {
-        update_point(0.0005, 0, true, false);
-    } else if (key === "ArrowUp") {
-        update_point(0, -0.0005, true, false);
-    } else if (key === "ArrowDown") {
-        update_point(0, 0.0005, true, false);
-    } else if (key == "a") {
-        update_point(-0.0005, 0, true, true);
-    } else if (key == "d") {
-        update_point(0.0005, 0, true, true);
-    } else if (key == "w") {
-        update_point(0, -0.0005, true, true);
-    } else if (key == "s") {
-        update_point(0, 0.0005, true, true);
-    } else if (key === "a") {
-        params.drag = "a";
-    } else if (key === "b") {
-        params.drag = "b";
-    } else if (key === "z") {
-        params.drag = "all";
-    } else if (key == "m") {
-        params.mandelbrot = true;
-        paint();
-    } else if (key == "j") {
-        params.mandelbrot = false;
-        paint();
-    }
-}
-
-let touches = new Map();
 
 function touchstart() {
     event.preventDefault();
@@ -424,6 +415,7 @@ function touchmove() {
 }
 
 function scale_rotate(scaleX, scaleY) {
+    params.last_moved = performance.now();
     if (params.mandelbrot) {
         if (params.drag === "ca") {
             let c0 = -params.ascale[0] - params.bscale[0];
@@ -463,6 +455,7 @@ function scale_rotate(scaleX, scaleY) {
 }
 
 function move(deltaX, deltaY) {
+    params.last_moved = performance.now();
     if (params.drag === "ca") {
         const cscale = [
             (params.ascale[0] + params.bscale[0]),
@@ -505,7 +498,7 @@ button.active {
 }
     </style>
 </head>
-<body onkeydown="keydown()">
+<body>
     <button id="button_ab" onclick="params.drag='ab'; paint()">AB</button>
     <button id="button_bc" onclick="params.drag='bc'; paint()">BC</button>
     <button id="button_ca" onclick="params.drag='ca'; paint()">CA</button>
