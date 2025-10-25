@@ -105,8 +105,6 @@ function setup() {
             vec2 z = actual_z0;
             const int max_iteration = 200;
             int iter = 0;
-            vec2 prevPrevZ = vec2(100000.0, 0.0);
-            vec2 prevZ = vec2(-100000.0, 0.0);
             vec3 color = vec3(0.0, 0.0, 0.0);
             float delta = 1.0 / float(max_iteration);
             for (int iteration = 0; iteration < max_iteration; iteration++) {
@@ -116,25 +114,20 @@ function setup() {
                     mul(a - one, z) + b
                 );
                 if (length(z) > 100.0) {
-                    // color += vec3(delta * float(max_iteration - iteration), 0.0, 0.0);
-                    // break;
-                    color += vec3(delta, 0.0, 0.0);
-                } else if (length(z - prevPrevZ) < 0.1) {
-                    if (uColor) {
-                        if (length(z) < 0.05) {
-                            color += vec3(0.0, delta, 0.0);
-                        } else if (length(z - one) < 0.05) {
-                            color += vec3(0.0, 0.0, delta);
-                        } else {
-                            color += vec3(delta, delta, delta);
-                        }
-                    } else {
-                        color += vec3(delta, delta, delta);
-                    }
-                    iter++;
+                    return vec4(1.0, 0.0, 0.0, 1.0);
                 }
-                prevPrevZ = prevZ;
-                prevZ = z;
+            }
+            vec2 prevZ = z;
+            for (int iteration = 1; iteration < 16; iteration++) {
+                vec2 z2 = mul(z, z);
+                z = div(
+                    mul(a, z2) + mul(b - one, z),
+                    mul(a - one, z) + b
+                );
+                if (length(z - prevZ) < 0.05) {
+                    color = vec3(mod(float(iteration), 2.0), mod(float(iteration), 4.0) / 3.0, mod(float(iteration), 8.0) / 7.0) * (0.5 + 0.5 * length(z));
+                    break;
+                }
             }
             return vec4(color, 1.0);
         }
