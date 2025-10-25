@@ -118,14 +118,14 @@ function setup() {
                 }
             }
             vec2 prevZ = z;
-            for (int iteration = 1; iteration < 16; iteration++) {
+            for (int iteration = 0; iteration < 32; iteration++) {
                 vec2 z2 = mul(z, z);
                 z = div(
                     mul(a, z2) + mul(b - one, z),
                     mul(a - one, z) + b
                 );
                 if (length(z - prevZ) < 0.05) {
-                    color = vec3(mod(float(iteration), 2.0), mod(float(iteration), 4.0) / 3.0, mod(float(iteration), 8.0) / 7.0) * (0.5 + 0.5 * length(z));
+                    color = vec3(1.0 + cos(float(iteration) * 3.88), 1.0 + cos(float(iteration) * 3.88 + 2.0), 1.0 + cos(float(iteration) * 3.88 + 4.0)) * (0.25 + 0. * z.y);
                     break;
                 }
             }
