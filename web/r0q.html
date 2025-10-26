@@ -431,21 +431,30 @@ function paint() {
             params.timer = setTimeout(paint, 100);
         }
     }
+}
 
+function update_buttons() {
     document.getElementById("button_opp").classList.remove("active");
     document.getElementById("button_all").classList.remove("active");
     document.getElementById("button_flip").classList.remove("active");
     document.getElementById("button_julia").classList.remove("active");
-    if (params.flip) {
-        document.getElementById("button_flip").classList.add("active");
-    }
+    document.getElementById("button_opp").classList.remove("disabled");
+    document.getElementById("button_all").classList.remove("disabled");
+    document.getElementById("button_flip").classList.remove("disabled");
     if (params.julia) {
         document.getElementById("button_julia").classList.add("active");
-    }
-    if (params.drag === "distort") {
-        document.getElementById("button_opp").classList.add("active");
-    } else if (params.drag === "zoom") {
-        document.getElementById("button_all").classList.add("active");
+        document.getElementById("button_opp").classList.add("disabled");
+        document.getElementById("button_all").classList.add("disabled");
+        document.getElementById("button_flip").classList.add("disabled");
+    } else {
+        if (params.flip) {
+            document.getElementById("button_flip").classList.add("active");
+        }
+        if (params.drag === "distort") {
+            document.getElementById("button_opp").classList.add("active");
+        } else if (params.drag === "zoom") {
+            document.getElementById("button_all").classList.add("active");
+        }
     }
 }
 
@@ -520,7 +529,12 @@ function doubletouch() {
 
     const deltaX = -((touch1.pageX + touch2.pageX) / 2 - (prevTouch1.pageX + prevTouch2.pageX) / 2) * 0.005;
     const deltaY = ((touch1.pageY + touch2.pageY) / 2 - (prevTouch1.pageY + prevTouch2.pageY) / 2) * 0.005;
-    move(deltaX, deltaY);
+    if (params.julia) {
+        params.z0[0] += deltaX * params.z0Scale[0] - deltaY * params.z0Scale[1];
+        params.z0[1] += deltaX * params.z0Scale[1] + deltaY * params.z0Scale[0];
+    } else {
+        move(deltaX, deltaY);
+    }
 
     prevTouch1.pageX = touch1.pageX;
     prevTouch1.pageY = touch1.pageY;
@@ -558,12 +572,10 @@ function scale_rotate(scaleX, scaleY) {
         clearTimeout(params.timer);
     }
     if (params.julia) {
-        if (params.drag === "zoom") {
-            params.z0Scale = [
-                params.z0Scale[0] * scaleX - params.z0Scale[1] * scaleY,
-                params.z0Scale[0] * scaleY + params.z0Scale[1] * scaleX
-            ];
-        }
+        params.z0Scale = [
+            params.z0Scale[0] * scaleX - params.z0Scale[1] * scaleY,
+            params.z0Scale[0] * scaleY + params.z0Scale[1] * scaleX
+        ];
     } else {
         if (params.drag === "distort") {
             const a_hyp = 1.0 / Math.hypot(params.ascale[0], params.ascale[1]);
@@ -616,19 +628,18 @@ function move(deltaX, deltaY) {
         params.b[0] -= (deltaX * params.bscale[0] - deltaY * params.bscale[1]) * b_amount;
         params.b[1] -= (deltaY * params.bscale[0] + deltaX * params.bscale[1]) * b_amount;
     }
-    if ((params.drag === "zoom" && !params.julia) || (params.drag === "distort" && params.julia)) {
+    if (params.drag === "zoom" || params.julia) {
         params.a[0] += deltaX * params.ascale[0] - deltaY * params.ascale[1];
         params.a[1] += deltaY * params.ascale[0] + deltaX * params.ascale[1];
         params.b[0] += deltaX * params.bscale[0] - deltaY * params.bscale[1];
         params.b[1] += deltaY * params.bscale[0] + deltaX * params.bscale[1];
     }
-    if (params.drag === "zoom" && params.julia) {
-        params.z0[0] += deltaX * params.z0Scale[0];
-        params.z0[1] += deltaY * params.z0Scale[1];
-    }
 }
 
 function flippen() {
+    if (params.julia) {
+        return;
+    }
     params.flip = !params.flip;
     if (params.julia) {
         params.z0[0] = params.flip ? params.b[0] : params.a[0];
@@ -639,6 +650,7 @@ function flippen() {
     if (params.timer !== null) {
         clearTimeout(params.timer);
     }
+    update_buttons();
     paint();
 }
 
@@ -650,7 +662,16 @@ function toggle_julia() {
     if (params.timer !== null) {
         clearTimeout(params.timer);
     }
+    update_buttons();
     paint();
+}
+
+function set_mandelbrot_drag(mode) {
+    if (params.julia) {
+        return;
+    }
+    params.drag = mode;
+    update_buttons();
 }
 
 function start() {
@@ -667,13 +688,17 @@ button {
 button.active {
     background: #ffaaaa;
 }
+button.disabled {
+    color: #888888;
+}
     </style>
 </head>
 <body>
-    <button id="button_opp" onclick="params.drag='distort'; paint()">Distort</button>
-    <button id="button_all" onclick="params.drag='zoom'; paint()">Zoom</button>
-    &nbsp;&nbsp;
+    <button id="button_opp" onclick="set_mandelbrot_drag('distort')">Distort</button>
+    <button id="button_all" onclick="set_mandelbrot_drag('zoom')">Zoom</button>
+    &nbsp;
     <button id="button_flip" onclick="flippen()">Flip</button>
+    &nbsp;&nbsp;&nbsp;&nbsp;
     <button id="button_julia" onclick="toggle_julia()">Julia</button>
     <br>
     <canvas id="canvas" width="400" height="800" onmousedown="mousedown()" onmousemove="mousemove()" onwheel="mousewheel()" ontouchstart="touchstart()" ontouchmove="touchmove()" ontouchend="touchend()"></canvas>
