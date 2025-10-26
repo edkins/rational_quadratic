@@ -13,10 +13,10 @@ let params = {
         [0.0, 0.0],
         [1.0, 0.0]
     ],
-    a: [0, 0.0],
-    ascale: [1.0, 0.0],
-    b: [0, 0.0],
-    bscale: [1.0, 0.0],
+    a: [0.3, 0.1],
+    ascale: [0.2, 0.0],
+    b: [0.3, -0.1],
+    bscale: [0.25, 0.0],
     z0: [0.0, 0.0],
     z0Scale: 2.0,
     mandelbrot: true,
@@ -37,7 +37,6 @@ function fragmentShaderSource(max_iter, max_period) {
         varying vec2 b;
         varying vec2 z0;
         uniform bool uMandelbrot;
-        uniform bool uColor;
         uniform float uBailout;
         uniform float uBailin;
         uniform float uBrightness;
@@ -78,14 +77,9 @@ function fragmentShaderSource(max_iter, max_period) {
             vec2 z = actual_z0;
             const int max_iteration = ${max_iter};
             int iter = 0;
-            vec3 color = vec3(0.0, 0.0, 0.0);
-            float delta = 1.0 / float(max_iteration);
             vec2 prevZ = z;
-            int next = 0;
-            int period = 0;
-            int count = 0;
-            int best_guess = 0;
-            bool counted = false;
+            int brightness = 0;
+            int period = -1;
             for (int iteration = 0; iteration < max_iteration; iteration++) {
                 vec2 z2 = mul(z, z);
                 z = div(
@@ -93,40 +87,34 @@ function fragmentShaderSource(max_iter, max_period) {
                     mul(a - one, z) + b
                 );
                 if (length(z) > uBailout) {
-                    float theta = 3.88; // + 0.5 * z.y;
-                    color = vec3(1.0 + cos(theta), 1.0 + cos(theta + 2.0), 1.0 + cos(theta + 4.0)) * min(0.5, uBrightness * sqrt(float(iteration)));
-                    return vec4(color, 1.0);
+                    period = 0;
+                    brightness = iteration;
+                    break;
                 }
 
                 float d = length(z - prevZ);
-                period += 1;
-                if (!counted && d < uBailin) {
-                    count += 1;
-                    best_guess = period;
-                    counted = true;
-                    if (count >= 3) {
-                        float theta = float(period) * 3.88; // + 0.5 * z.y;
-                        color = vec3(1.0 + cos(theta), 1.0 + cos(theta + 2.0), 1.0 + cos(theta + 4.0)) * min(0.5, uBrightness * sqrt(float(iteration)));
-                        return vec4(color, 1.0);
-                    }
-                    // next = iteration + period * 5;
-                } else if (iteration > next) {
-                    next = iteration * 2;
-                    if (next > iteration + 100) {
-                        next = iteration + 100;
-                    }
+                if (d < uBailin && brightness == 0) {
+                    brightness = iteration;
+                }
+                if (mod(float(iteration), 32.0) < 0.001 || iteration == ${max_iter - max_period}) {
                     prevZ = z;
-                    period = 0;
-                    counted = false;
+                }
+                if (iteration > ${max_iter - max_period}) {
+                    if (d < uBailin) {
+                        period = iteration - ${max_iter - max_period + 1};
+                        break;
+                    }
                 }
             }
-            // if (best_guess == 0) {
-                return vec4(0.0, 0.0, 0.0, 1.0);
-            // } else {
-            //     float theta = float(best_guess) * 3.88; // + 0.5 * z.y;
-            //     color = vec3(1.0 + cos(theta), 1.0 + cos(theta + 2.0), 1.0 + cos(theta + 4.0)) * min(0.5, uBrightness * sqrt(float(max_iteration)));
-            //     return vec4(color, 1.0);
-            // }
+            // float brightnessf = 0.25 + sin(sqrt(max(float(brightness), 32.0) * 0.1)) * 0.25;
+            // float brightnessf = 0.1 + log(float(brightness) + 10.0) * 0.1;
+            float brightnessf = -0.6 + sqrt(max(float(brightness), 32.0) + 10.0) * 0.1;
+            float theta = float(period) * 3.88;
+            if (period == -1) {
+                return vec4(brightnessf, brightnessf, brightnessf, 1.0);
+            }
+            vec3 color = vec3(1.0 + cos(theta), 1.0 + cos(theta + 2.1), 1.0 + cos(theta + 4.2)) * brightnessf;
+            return vec4(color, 1.0);
         }
 
         void main(void) {
@@ -181,8 +169,8 @@ function setup() {
     `;
 
     // Mandelbrot/Julia fragment shader program
-    const fsSource = fragmentShaderSource(400, 32);
-    const fsSourceHigh = fragmentShaderSource(400 + 2*2*2*2*2*3*3*5, 100);
+    const fsSource = fragmentShaderSource(200, 32);
+    const fsSourceHigh = fragmentShaderSource(2000, 100);
 
     // Initialize shaders
     const vertexShader = ctx.createShader(ctx.VERTEX_SHADER);
@@ -264,8 +252,8 @@ function setup() {
     ctx.bufferData(ctx.ARRAY_BUFFER, vertices, ctx.STATIC_DRAW);
 
     // Create texture to hold low-iteration Mandelbrot image
-    const fbWidth = 200;
-    const fbHeight = 400;
+    const fbWidth = 400;
+    const fbHeight = 800;
     const destTexture = ctx.createTexture();
     ctx.bindTexture(ctx.TEXTURE_2D, destTexture);
     ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGBA, fbWidth, fbHeight, 0, ctx.RGBA, ctx.UNSIGNED_BYTE, null);
@@ -310,9 +298,10 @@ function setup() {
             ub: ctx.getUniformLocation(shaderProgram, "ub"),
             uascale: ctx.getUniformLocation(shaderProgram, "uascale"),
             ubscale: ctx.getUniformLocation(shaderProgram, "ubscale"),
-            uColor: ctx.getUniformLocation(shaderProgram, "uColor"),
             uBailout: ctx.getUniformLocation(shaderProgram, "uBailout"),
             uBailin: ctx.getUniformLocation(shaderProgram, "uBailin"),
+            bailin: 0.002,
+            bailout: 1000,
             uNudge: ctx.getUniformLocation(shaderProgram, "uNudge"),
             vertexBuffer,
             destTexture,
@@ -332,9 +321,10 @@ function setup() {
             ub: ctx.getUniformLocation(shaderProgramHigh, "ub"),
             uascale: ctx.getUniformLocation(shaderProgramHigh, "uascale"),
             ubscale: ctx.getUniformLocation(shaderProgramHigh, "ubscale"),
-            uColor: ctx.getUniformLocation(shaderProgramHigh, "uColor"),
             uBailout: ctx.getUniformLocation(shaderProgramHigh, "uBailout"),
             uBailin: ctx.getUniformLocation(shaderProgramHigh, "uBailin"),
+            bailin: 0.001,
+            bailout: 1000,
             uNudge: ctx.getUniformLocation(shaderProgramHigh, "uNudge"),
             vertexBuffer,
             destTexture: destTextureHigh,
@@ -353,11 +343,11 @@ function setup() {
     };
 }
 
-function paintMandelbrot(ctx, stuff, bailout, bailin, nudgeX, nudgeY) {
+function paintMandelbrot(ctx, stuff, nudgeX, nudgeY) {
     // Draw the Julia or Mandelbrot set
     ctx.useProgram(stuff.shaderProgram);
-    ctx.uniform1f(stuff.uBailout, bailout);
-    ctx.uniform1f(stuff.uBailin, bailin);
+    ctx.uniform1f(stuff.uBailout, stuff.bailout);
+    ctx.uniform1f(stuff.uBailin, stuff.bailin);
     ctx.uniform2f(stuff.uNudge, nudgeX, nudgeY);
     if (params.mandelbrot) {
         ctx.uniform1i(stuff.uMandelbrot, true);
@@ -377,8 +367,6 @@ function paintMandelbrot(ctx, stuff, bailout, bailin, nudgeX, nudgeY) {
         ctx.uniform2f(stuff.uz0, params.z0[0], params.z0[1]);
         ctx.uniform1f(stuff.uBrightness, stuff.brightness);
     }
-    ctx.uniform1i(stuff.uColor, params.color);
-
     ctx.bindBuffer(ctx.ARRAY_BUFFER, stuff.vertexBuffer);
     ctx.enableVertexAttribArray(stuff.aVertexPosition);
     ctx.vertexAttribPointer(stuff.aVertexPosition, 2, ctx.FLOAT, false, 0, 0);
@@ -405,7 +393,7 @@ function paint() {
         ctx.bindFramebuffer(ctx.FRAMEBUFFER, glStuff.main.framebuffer);
         ctx.viewport(0, 0, glStuff.main.fbWidth, glStuff.main.fbHeight);
         ctx.clear(ctx.COLOR_BUFFER_BIT);
-        paintMandelbrot(ctx, glStuff.main, 1000, 0.005, 0, 0);
+        paintMandelbrot(ctx, glStuff.main, 0, 0);
 
         ctx.bindFramebuffer(ctx.FRAMEBUFFER, null);
         ctx.viewport(0, 0, ctx.canvas.width, ctx.canvas.height);
@@ -423,15 +411,15 @@ function paint() {
 
         if (params.high_count === 1) {
             ctx.clear(ctx.COLOR_BUFFER_BIT);
-            paintMandelbrot(ctx, glStuff.high, 1000, 0.005, 0, 0);
+            paintMandelbrot(ctx, glStuff.high, 0, 0);
         } else {
             ctx.enable(ctx.BLEND);
             ctx.blendEquation(ctx.FUNC_ADD);
             ctx.blendFuncSeparate(ctx.CONSTANT_ALPHA, ctx.ONE_MINUS_CONSTANT_ALPHA, ctx.CONSTANT_ALPHA, ctx.ONE_MINUS_CONSTANT_ALPHA);
             ctx.blendColor(1.0, 1.0, 1.0, 1.0 / params.high_count);
-            let nudgeX = (Math.random() - 0.5) * 0.5 / 50;
-            let nudgeY = (Math.random() - 0.5) * 0.5 / 50;
-            paintMandelbrot(ctx, glStuff.high, 1000, 0.005, nudgeX, nudgeY);
+            let nudgeX = (Math.random() - 0.5) * 0.5 / 100;
+            let nudgeY = (Math.random() - 0.5) * 0.5 / 100;
+            paintMandelbrot(ctx, glStuff.high, nudgeX, nudgeY);
             ctx.disable(ctx.BLEND);
         }
 
