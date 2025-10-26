@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rational Quadratic Julia Sets</title>
+    <script>
+"use strict";
+
+let params = {
+    fixedPoints: [
+        [-1.0, 0.0],
+        [0.0, 0.0],
+        [1.0, 0.0]
+    ],
+    a: [0, 0.0],
+    ascale: [1.0, 0.0],
+    b: [0, 0.0],
+    bscale: [1.0, 0.0],
+    z0: [0.0, 0.0],
+    z0Scale: 2.0,
+    mandelbrot: true,
+    color: true,
+    drag: "all",
+    drag_start: [0.0, 0.0],
+    timer: null,
+    last_moved: 0,
+    high_count: 0,
+};
+let glStuff = null;
+let touches = new Map();
+
+function fragmentShaderSource(max_iter, max_period) {
+    return `
+        precision highp float;
+        varying vec2 a;
+        varying vec2 b;
+        varying vec2 z0;
+        uniform bool uMandelbrot;
+        uniform bool uColor;
+        uniform float uBailout;
+        uniform float uBailin;
+
+        const vec2 two = vec2(2.0, 0.0);
+        const vec2 one = vec2(1.0, 0.0);
+
+        vec2 csqrt(vec2 z) {
+            float r = length(z);
+            float theta = atan(z.y, z.x);
+            return vec2(
+                sqrt(r) * cos(theta / 2.0),
+                sqrt(r) * sin(theta / 2.0)
+            );
+        }
+
+        vec2 mul(vec2 x, vec2 y) {
+            return vec2(
+                x.x * y.x - x.y * y.y,
+                x.x * y.y + x.y * y.x);
+        }
+
+        vec2 div(vec2 x, vec2 y) {
+            float denom = y.x * y.x + y.y * y.y;
+            return vec2(
+                (x.x * y.x + x.y * y.y) / denom,
+                (x.y * y.x - x.x * y.y) / denom);
+        }
+
+        vec4 solve_quadratic(vec2 a, vec2 b, vec2 c) {
+            vec2 discriminant = csqrt(mul(b, b) - 4.0 * mul(a, c));
+            vec2 root1 = div(-b + discriminant, 2.0 * a);
+            vec2 root2 = div(-b - discriminant, 2.0 * a);
+            return vec4(root1, root2);  // return both roots packed together
+        }
+
+        vec4 mandelbrot(vec2 actual_z0) {
+            vec2 z = actual_z0;
+            const int max_iteration = ${max_iter};
+            int iter = 0;
+            vec3 color = vec3(0.0, 0.0, 0.0);
+            float delta = 1.0 / float(max_iteration);
+            vec2 prevZ = z;
+            float period = 0.0;
+            for (int iteration = 0; iteration < max_iteration; iteration++) {
+                vec2 z2 = mul(z, z);
+                z = div(
+                    mul(a, z2) + mul(b - one, z),
+                    mul(a - one, z) + b
+                );
+                if (length(z) > uBailout) {
+                    return vec4(1.0, 0.0, 0.0, 1.0);
+                }
+                float fiter = float(iteration);
+                period += 1.0;
+                if (length(z - prevZ) < uBailin) {
+                    return vec4(fiter * 0.01, fiter * 0.003, fiter * 0.001, 1.0);
+                    // return vec4(period * 0.1, period * 0.03, period * 0.01, 1.0);
+                }
+                if (mod(fiter, ${max_period}.0) < 0.001) {
+                    prevZ = z;
+                    period = 0.0;
+                }
+            }
+            return vec4(0.0, 0.0, 0.0, 1.0);
+        }
+
+        void main(void) {
+            if (uMandelbrot) {
+                vec4 roots = solve_quadratic(
+                    mul(a, a - one),
+                    2.0 * mul(a, b),
+                    mul(b, b - one)
+                );
+                gl_FragColor = 0.5 * mandelbrot(roots.xy) + 
+                               0.5 * mandelbrot(roots.zw);
+            } else {
+                gl_FragColor = mandelbrot(z0);
+            }
+        }
+    `;
+}
+        
+function setup() {
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("webgl");
+    ctx.clearColor(1.0, 0.9, 0.9, 1.0);
+
+    // Mandelbrot vertex shader program
+    const vsSource = `
+        precision highp float;
+        attribute vec2 aVertexPosition;
+        uniform vec2 uz0;
+        uniform float uz0Scale;
+        uniform vec2 ua;
+        uniform vec2 ub;
+        uniform vec2 uascale;
+        uniform vec2 ubscale;
+        uniform vec2 uNudge;
+        varying vec2 a;
+        varying vec2 b;
+        varying vec2 z0;
+
+        vec2 mul(vec2 x, vec2 y) {
+            return vec2(
+                x.x * y.x - x.y * y.y,
+                x.x * y.y + x.y * y.x);
+        }
+
+        void main(void) {
+            gl_Position = vec4(aVertexPosition, 0.0, 1.0);
+            vec2 vp = aVertexPosition * vec2(1.0, 2.0) + uNudge;
+            a = ua + mul(vp, uascale);
+            b = ub + mul(vp, ubscale);
+            z0 = uz0 + vp * uz0Scale;
+        }
+    `;
+
+    // Mandelbrot/Julia fragment shader program
+    const fsSource = fragmentShaderSource(400, 100);
+    const fsSourceHigh = fragmentShaderSource(400 + 2*2*2*2*2*3*3*5, 100);
+
+    // Initialize shaders
+    const vertexShader = ctx.createShader(ctx.VERTEX_SHADER);
+    ctx.shaderSource(vertexShader, vsSource);
+    ctx.compileShader(vertexShader);
+    const fragmentShader = ctx.createShader(ctx.FRAGMENT_SHADER);
+    ctx.shaderSource(fragmentShader, fsSource);
+    ctx.compileShader(fragmentShader);
+    if (!ctx.getShaderParameter(vertexShader, ctx.COMPILE_STATUS) ||
+        !ctx.getShaderParameter(fragmentShader, ctx.COMPILE_STATUS)) {
+        console.error("An error occurred compiling the shaders: " +
+            ctx.getShaderInfoLog(vertexShader) + " " +
+            ctx.getShaderInfoLog(fragmentShader));
+        return null;
+    }
+    const shaderProgram = ctx.createProgram();
+    ctx.attachShader(shaderProgram, vertexShader);
+    ctx.attachShader(shaderProgram, fragmentShader);
+    ctx.linkProgram(shaderProgram);
+
+    // Initialize shaders (high iteration count)
+    const fragmentShaderHigh = ctx.createShader(ctx.FRAGMENT_SHADER);
+    ctx.shaderSource(fragmentShaderHigh, fsSourceHigh);
+    ctx.compileShader(fragmentShaderHigh);
+    if (!ctx.getShaderParameter(fragmentShaderHigh, ctx.COMPILE_STATUS)) {
+        console.error("An error occurred compiling the high iteration shader: " +
+            ctx.getShaderInfoLog(fragmentShaderHigh));
+        return null;
+    }
+    const shaderProgramHigh = ctx.createProgram();
+    ctx.attachShader(shaderProgramHigh, vertexShader);
+    ctx.attachShader(shaderProgramHigh, fragmentShaderHigh);
+    ctx.linkProgram(shaderProgramHigh);
+
+    // Shaders for texture blitting
+    const vsSourceBlit = `
+        attribute vec2 aVertexPosition;
+        varying vec2 vTexCoord;
+        void main(void) {
+            gl_Position = vec4(aVertexPosition, 0.0, 1.0);
+            vTexCoord = (aVertexPosition + vec2(1.0, 1.0)) * 0.5;
+        }
+    `;
+    const fsSourceBlit = `
+        precision highp float;
+        varying vec2 vTexCoord;
+        uniform sampler2D uTexture;
+        void main(void) {
+            gl_FragColor = texture2D(uTexture, vTexCoord);
+        }
+    `;
+    const vertexShaderBlit = ctx.createShader(ctx.VERTEX_SHADER);
+    ctx.shaderSource(vertexShaderBlit, vsSourceBlit);
+    ctx.compileShader(vertexShaderBlit);
+    const fragmentShaderBlit = ctx.createShader(ctx.FRAGMENT_SHADER);
+    ctx.shaderSource(fragmentShaderBlit, fsSourceBlit);
+    ctx.compileShader(fragmentShaderBlit);
+    if (!ctx.getShaderParameter(vertexShaderBlit, ctx.COMPILE_STATUS) ||
+        !ctx.getShaderParameter(fragmentShaderBlit, ctx.COMPILE_STATUS)) {
+        console.error("An error occurred compiling the blit shaders: " +
+            ctx.getShaderInfoLog(vertexShaderBlit) + " " +
+            ctx.getShaderInfoLog(fragmentShaderBlit));
+        return null;
+    }
+    const shaderProgramBlit = ctx.createProgram();
+    ctx.attachShader(shaderProgramBlit, vertexShaderBlit);
+    ctx.attachShader(shaderProgramBlit, fragmentShaderBlit);
+    ctx.linkProgram(shaderProgramBlit);
+
+    // Set up square vertices
+    const vertices = new Float32Array([
+        -1, -1,
+         1, -1,
+        -1,  1,
+         1,  1,
+    ]);
+    const vertexBuffer = ctx.createBuffer();
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, vertexBuffer);
+    ctx.bufferData(ctx.ARRAY_BUFFER, vertices, ctx.STATIC_DRAW);
+
+    // Create texture to hold low-iteration Mandelbrot image
+    const fbWidth = 100;
+    const fbHeight = 200;
+    const destTexture = ctx.createTexture();
+    ctx.bindTexture(ctx.TEXTURE_2D, destTexture);
+    ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGBA, fbWidth, fbHeight, 0, ctx.RGBA, ctx.UNSIGNED_BYTE, null);
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MIN_FILTER, ctx.LINEAR);
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MAG_FILTER, ctx.LINEAR);
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_S, ctx.CLAMP_TO_EDGE);
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_T, ctx.CLAMP_TO_EDGE);
+    ctx.bindTexture(ctx.TEXTURE_2D, null);
+
+    // Create framebuffer to render low-iteration Mandelbrot image into
+    const framebuffer = ctx.createFramebuffer();
+    ctx.bindFramebuffer(ctx.FRAMEBUFFER, framebuffer);
+    ctx.framebufferTexture2D(ctx.FRAMEBUFFER, ctx.COLOR_ATTACHMENT0, ctx.TEXTURE_2D, destTexture, 0);
+    ctx.bindFramebuffer(ctx.FRAMEBUFFER, null);
+
+    // Create texture to hold high-iteration Mandelbrot image
+    const fbWidthHigh = 400;
+    const fbHeightHigh = 800;
+    const destTextureHigh = ctx.createTexture();
+    ctx.bindTexture(ctx.TEXTURE_2D, destTextureHigh);
+    ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGBA, fbWidthHigh, fbHeightHigh, 0, ctx.RGBA, ctx.UNSIGNED_BYTE, null);
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MIN_FILTER, ctx.LINEAR);
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MAG_FILTER, ctx.LINEAR);
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_S, ctx.CLAMP_TO_EDGE);
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_T, ctx.CLAMP_TO_EDGE);
+    ctx.bindTexture(ctx.TEXTURE_2D, null);
+
+    // Create framebuffer to render high-iteration Mandelbrot image into
+    const framebufferHigh = ctx.createFramebuffer();
+    ctx.bindFramebuffer(ctx.FRAMEBUFFER, framebufferHigh);
+    ctx.framebufferTexture2D(ctx.FRAMEBUFFER, ctx.COLOR_ATTACHMENT0, ctx.TEXTURE_2D, destTextureHigh, 0);
+    ctx.bindFramebuffer(ctx.FRAMEBUFFER, null);
+
+    return {
+        main: {
+            shaderProgram,
+            aVertexPosition: ctx.getAttribLocation(shaderProgram, "aVertexPosition"),
+            uMandelbrot: ctx.getUniformLocation(shaderProgram, "uMandelbrot"),
+            uz0: ctx.getUniformLocation(shaderProgram, "uz0"),
+            uz0Scale: ctx.getUniformLocation(shaderProgram, "uz0Scale"),
+            ua: ctx.getUniformLocation(shaderProgram, "ua"),
+            ub: ctx.getUniformLocation(shaderProgram, "ub"),
+            uascale: ctx.getUniformLocation(shaderProgram, "uascale"),
+            ubscale: ctx.getUniformLocation(shaderProgram, "ubscale"),
+            uColor: ctx.getUniformLocation(shaderProgram, "uColor"),
+            uBailout: ctx.getUniformLocation(shaderProgram, "uBailout"),
+            uBailin: ctx.getUniformLocation(shaderProgram, "uBailin"),
+            uNudge: ctx.getUniformLocation(shaderProgram, "uNudge"),
+            vertexBuffer,
+            destTexture,
+            framebuffer,
+            fbWidth,
+            fbHeight,
+        },
+        high: {
+            shaderProgram: shaderProgramHigh,
+            aVertexPosition: ctx.getAttribLocation(shaderProgramHigh, "aVertexPosition"),
+            uMandelbrot: ctx.getUniformLocation(shaderProgramHigh, "uMandelbrot"),
+            uz0: ctx.getUniformLocation(shaderProgramHigh, "uz0"),
+            uz0Scale: ctx.getUniformLocation(shaderProgramHigh, "uz0Scale"),
+            ua: ctx.getUniformLocation(shaderProgramHigh, "ua"),
+            ub: ctx.getUniformLocation(shaderProgramHigh, "ub"),
+            uascale: ctx.getUniformLocation(shaderProgramHigh, "uascale"),
+            ubscale: ctx.getUniformLocation(shaderProgramHigh, "ubscale"),
+            uColor: ctx.getUniformLocation(shaderProgramHigh, "uColor"),
+            uBailout: ctx.getUniformLocation(shaderProgramHigh, "uBailout"),
+            uBailin: ctx.getUniformLocation(shaderProgramHigh, "uBailin"),
+            uNudge: ctx.getUniformLocation(shaderProgramHigh, "uNudge"),
+            vertexBuffer,
+            destTexture: destTextureHigh,
+            framebuffer: framebufferHigh,
+            fbWidth: fbWidthHigh,
+            fbHeight: fbHeightHigh,
+        },
+        blit: {
+            shaderProgram: shaderProgramBlit,
+            aVertexPosition: ctx.getAttribLocation(shaderProgramBlit, "aVertexPosition"),
+            uTexture: ctx.getUniformLocation(shaderProgramBlit, "uTexture"),
+            vertexBuffer,
+        }
+    };
+}
+
+function paintMandelbrot(ctx, stuff, bailout, bailin, nudgeX, nudgeY) {
+    // Draw the Julia or Mandelbrot set
+    ctx.useProgram(stuff.shaderProgram);
+    ctx.uniform1f(stuff.uBailout, bailout);
+    ctx.uniform1f(stuff.uBailin, bailin);
+    ctx.uniform2f(stuff.uNudge, nudgeX, nudgeY);
+    if (params.mandelbrot) {
+        ctx.uniform1i(stuff.uMandelbrot, true);
+        ctx.uniform1f(stuff.uz0Scale, 0.0);
+        ctx.uniform2f(stuff.ua, params.a[0], params.a[1]);
+        ctx.uniform2f(stuff.uascale, params.ascale[0], params.ascale[1]);
+        ctx.uniform2f(stuff.ub, params.b[0], params.b[1]);
+        ctx.uniform2f(stuff.ubscale, params.bscale[0], params.bscale[1]);
+    } else {
+        ctx.uniform1i(stuff.uMandelbrot, false);
+        ctx.uniform1f(stuff.uz0Scale, params.z0Scale);
+        ctx.uniform2f(stuff.ua, params.a[0], params.a[1]);
+        ctx.uniform2f(stuff.ub, params.b[0], params.b[1]);
+        ctx.uniform2f(stuff.uascale, 0.0, 0.0);
+        ctx.uniform2f(stuff.ubscale, 0.0, 0.0);
+    }
+    ctx.uniform1i(stuff.uColor, params.color);
+
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, stuff.vertexBuffer);
+    ctx.enableVertexAttribArray(stuff.aVertexPosition);
+    ctx.vertexAttribPointer(stuff.aVertexPosition, 2, ctx.FLOAT, false, 0, 0);
+    ctx.drawArrays(ctx.TRIANGLE_STRIP, 0, 4);
+}
+
+function blit_texture(ctx, stuff, texture) {
+    ctx.useProgram(stuff.shaderProgram);
+    ctx.activeTexture(ctx.TEXTURE0);
+    ctx.bindTexture(ctx.TEXTURE_2D, texture);
+    ctx.uniform1i(stuff.uTexture, 0);
+
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, stuff.vertexBuffer);
+    ctx.enableVertexAttribArray(stuff.aVertexPosition);
+    ctx.vertexAttribPointer(stuff.aVertexPosition, 2, ctx.FLOAT, false, 0, 0);
+    ctx.drawArrays(ctx.TRIANGLE_STRIP, 0, 4);
+
+    ctx.bindTexture(ctx.TEXTURE_2D, null);
+}
+
+function paint() {
+    const ctx = document.getElementById("canvas").getContext("webgl");
+    if (params.high_count === 0) {
+        ctx.bindFramebuffer(ctx.FRAMEBUFFER, glStuff.main.framebuffer);
+        ctx.viewport(0, 0, glStuff.main.fbWidth, glStuff.main.fbHeight);
+        ctx.clear(ctx.COLOR_BUFFER_BIT);
+        paintMandelbrot(ctx, glStuff.main, 1000, 0.005, 0, 0);
+
+        ctx.bindFramebuffer(ctx.FRAMEBUFFER, null);
+        ctx.viewport(0, 0, ctx.canvas.width, ctx.canvas.height);
+        ctx.clear(ctx.COLOR_BUFFER_BIT);
+        blit_texture(ctx, glStuff.blit, glStuff.main.destTexture);
+
+        if (params.timer !== null) {
+            clearTimeout(params.timer);
+        }
+        params.high_count += 1;
+        params.timer = setTimeout(paint, 300);
+    } else {
+        ctx.bindFramebuffer(ctx.FRAMEBUFFER, glStuff.high.framebuffer);
+        ctx.viewport(0, 0, glStuff.high.fbWidth, glStuff.high.fbHeight);
+
+        if (params.high_count === 1) {
+            ctx.clear(ctx.COLOR_BUFFER_BIT);
+            paintMandelbrot(ctx, glStuff.high, 1000, 0.005, 0, 0);
+        } else {
+            ctx.enable(ctx.BLEND);
+            ctx.blendEquation(ctx.FUNC_ADD);
+            ctx.blendFuncSeparate(ctx.CONSTANT_ALPHA, ctx.ONE_MINUS_CONSTANT_ALPHA, ctx.CONSTANT_ALPHA, ctx.ONE_MINUS_CONSTANT_ALPHA);
+            ctx.blendColor(1.0, 1.0, 1.0, 1.0 / params.high_count);
+            let nudgeX = (Math.random() - 0.5) * 0.5 / 50;
+            let nudgeY = (Math.random() - 0.5) * 0.5 / 50;
+            paintMandelbrot(ctx, glStuff.high, 1000, 0.005, nudgeX, nudgeY);
+            ctx.disable(ctx.BLEND);
+        }
+
+        ctx.bindFramebuffer(ctx.FRAMEBUFFER, null);
+        ctx.viewport(0, 0, ctx.canvas.width, ctx.canvas.height);
+        blit_texture(ctx, glStuff.blit, glStuff.high.destTexture);
+        params.high_count += 1;
+
+        if (params.timer !== null) {
+            clearTimeout(params.timer);
+        }
+        if (params.high_count < 8) {
+            params.timer = setTimeout(paint, 10);
+        }
+    }
+
+    document.getElementById("button_ab").classList.remove("active");
+    document.getElementById("button_bc").classList.remove("active");
+    document.getElementById("button_ca").classList.remove("active");
+    document.getElementById("button_all").classList.remove("active");
+    if (params.drag === "ab") {
+        document.getElementById("button_ab").classList.add("active");
+    } else if (params.drag === "bc") {
+        document.getElementById("button_bc").classList.add("active");
+    } else if (params.drag === "ca") {
+        document.getElementById("button_ca").classList.add("active");
+    } else if (params.drag === "all") {
+        document.getElementById("button_all").classList.add("active");
+    }
+}
+
+function mousedown() {
+    const x = event.clientX;
+    const y = event.clientY;
+    params.drag_start = [x, y];
+    // update_point(x,y, false, params.last_alternate);
+    event.preventDefault();
+}
+
+function mousemove() {
+    const x = event.clientX;
+    const y = event.clientY;
+    if (event.buttons === 1) {
+        move(
+            -(x - params.drag_start[0]) * 0.005,
+            (y - params.drag_start[1]) * 0.005
+        );
+        paint();
+    }
+    params.drag_start = [x, y];
+    event.preventDefault();
+}
+
+function mousewheel() {
+    const delta = event.deltaY;
+    const scale = Math.exp(delta * 0.001);
+    scale_rotate(scale, 0);
+    paint();
+    event.preventDefault();
+}
+
+function touchstart() {
+    event.preventDefault();
+    const changedTouch = event.changedTouches[0];
+    const touch = {
+      pageX: changedTouch.pageX,
+      pageY: changedTouch.pageY,
+    };
+    touches.set(changedTouch.identifier, touch);
+}
+
+function touchend() {
+    event.preventDefault();
+    const changedTouch = event.changedTouches[0];
+    const ongoingTouch = touches.get(changedTouch.identifier);
+    const deltaX = changedTouch.pageX - ongoingTouch.pageX;
+    const deltaY = changedTouch.pageY - ongoingTouch.pageY;
+    if (params.drag === "a" || params.drag === "all") {
+        params.a[0] -= deltaX * 0.0001;
+        params.a[1] += deltaY * 0.0001;
+    }
+    if (params.drag === "b" || params.drag === "all") {
+        params.b[0] -= deltaX * 0.0001;
+        params.b[1] += deltaY * 0.0001;
+    }
+    touches.delete(changedTouch.identifier);
+}
+
+function doubletouch() {
+    const touch1 = event.changedTouches[0];
+    const touch2 = event.changedTouches[1];
+    const prevTouch1 = touches.get(touch1.identifier);
+    const prevTouch2 = touches.get(touch2.identifier);
+    const prevDist = Math.hypot(
+        prevTouch2.pageX - prevTouch1.pageX,
+        prevTouch2.pageY - prevTouch1.pageY);
+    const newDist = Math.hypot(
+        touch2.pageX - touch1.pageX,
+        touch2.pageY - touch1.pageY);
+    const prevAngle = Math.atan2(
+        prevTouch2.pageY - prevTouch1.pageY,
+        prevTouch2.pageX - prevTouch1.pageX);
+    const newAngle = Math.atan2(
+        touch2.pageY - touch1.pageY,
+        touch2.pageX - touch1.pageX);
+    const angleDelta = newAngle - prevAngle;
+    const scaleX = Math.cos(angleDelta) * prevDist / newDist;
+    const scaleY = Math.sin(angleDelta) * prevDist / newDist;
+    scale_rotate(scaleX, scaleY);
+
+    const deltaX = -((touch1.pageX + touch2.pageX) / 2 - (prevTouch1.pageX + prevTouch2.pageX) / 2) * 0.005;
+    const deltaY = ((touch1.pageY + touch2.pageY) / 2 - (prevTouch1.pageY + prevTouch2.pageY) / 2) * 0.005;
+    move(deltaX, deltaY);
+
+    prevTouch1.pageX = touch1.pageX;
+    prevTouch1.pageY = touch1.pageY;
+    prevTouch2.pageX = touch2.pageX;
+    prevTouch2.pageY = touch2.pageY;
+    paint();
+}
+
+function touchmove() {
+    event.preventDefault();
+    if (event.changedTouches.length === 2) {
+        doubletouch();
+        return;
+    }
+    if (event.changedTouches.length !== 1) {
+        return;
+    }
+    const changedTouch = event.changedTouches[0];
+    const ongoingTouch = touches.get(changedTouch.identifier);
+    if (!ongoingTouch) {
+        return;
+    }
+    const deltaX = -(changedTouch.pageX - ongoingTouch.pageX) * 0.005;
+    const deltaY = (changedTouch.pageY - ongoingTouch.pageY) * 0.005;
+    ongoingTouch.pageX = changedTouch.pageX;
+    ongoingTouch.pageY = changedTouch.pageY;
+    move(deltaX, deltaY);
+    paint();
+}
+
+function scale_rotate(scaleX, scaleY) {
+    params.last_moved = performance.now();
+    params.high_count = 0;
+    if (params.timer !== null) {
+        clearTimeout(params.timer);
+    }
+    if (params.mandelbrot) {
+        if (params.drag === "ca") {
+            let c0 = -params.ascale[0] - params.bscale[0];
+            let c1 = -params.ascale[1] - params.bscale[1];
+            let cincrx = c0 * scaleX - c1 * scaleY - c0;
+            let cincry = c0 * scaleY + c1 * scaleX - c1;
+            params.ascale[0] -= cincrx;
+            params.ascale[1] -= cincry;
+        }
+        if (params.drag === "bc") {
+            params.bscale = [
+                params.bscale[0] * scaleX - params.bscale[1] * scaleY,
+                params.bscale[0] * scaleY + params.bscale[1] * scaleX
+            ];
+        }
+        if (params.drag === "ab") {
+            let aincrx = params.ascale[0] * scaleX - params.ascale[1] * scaleY - params.ascale[0];
+            let aincry = params.ascale[0] * scaleY + params.ascale[1] * scaleX - params.ascale[1];
+            params.ascale[0] += aincrx;
+            params.ascale[1] += aincry;
+            params.bscale[0] -= aincrx;
+            params.bscale[1] -= aincry;
+        }
+        if (params.drag === "all") {
+            params.ascale = [
+                params.ascale[0] * scaleX - params.ascale[1] * scaleY,
+                params.ascale[0] * scaleY + params.ascale[1] * scaleX
+            ];
+            params.bscale = [
+                params.bscale[0] * scaleX - params.bscale[1] * scaleY,
+                params.bscale[0] * scaleY + params.bscale[1] * scaleX
+            ];
+        }
+    } else {
+        params.z0Scale /= scale;
+    }
+}
+
+function move(deltaX, deltaY) {
+    params.last_moved = performance.now();
+    params.high_count = 0;
+    if (params.timer !== null) {
+        clearTimeout(params.timer);
+    }
+    if (params.drag === "ca") {
+        const cscale = [
+            (params.ascale[0] + params.bscale[0]),
+            (params.ascale[1] + params.bscale[1])
+        ];
+        params.a[0] += deltaX * cscale[0] - deltaY * cscale[1];
+        params.a[1] += deltaY * cscale[0] + deltaX * cscale[1];
+    }
+    if (params.drag === "bc") {
+        params.b[0] += deltaX * params.bscale[0] - deltaY * params.bscale[1];
+        params.b[1] += deltaY * params.bscale[0] + deltaX * params.bscale[1];
+    }
+    if (params.drag === "ab") {
+        params.a[0] += deltaX * params.ascale[0] - deltaY * params.ascale[1];
+        params.a[1] += deltaY * params.ascale[0] + deltaX * params.ascale[1];
+        params.b[0] -= deltaX * params.ascale[0] - deltaY * params.ascale[1];
+        params.b[1] -= deltaY * params.ascale[0] + deltaX * params.ascale[1];
+    }
+    if (params.drag === "all") {
+        params.a[0] += deltaX * params.ascale[0] - deltaY * params.ascale[1];
+        params.a[1] += deltaY * params.ascale[0] + deltaX * params.ascale[1];
+        params.b[0] += deltaX * params.bscale[0] - deltaY * params.bscale[1];
+        params.b[1] += deltaY * params.bscale[0] + deltaX * params.bscale[1];
+    }
+}
+
+function start() {
+    glStuff = setup();
+    paint();
+}
+
+window.onload = start;
+    </script>
+    <style>
+button {
+    padding: 10px;
+}
+button.active {
+    background: #ffaaaa;
+}
+    </style>
+</head>
+<body>
+    <button id="button_ab" onclick="params.drag='ab'; paint()">AB</button>
+    <button id="button_bc" onclick="params.drag='bc'; paint()">BC</button>
+    <button id="button_ca" onclick="params.drag='ca'; paint()">CA</button>
+    <button id="button_all" onclick="params.drag='all'; paint()">All</button>
+    <br>
+    <canvas id="canvas" width="400" height="800" onmousedown="mousedown()" onmousemove="mousemove()" onwheel="mousewheel()" ontouchstart="touchstart()" ontouchmove="touchmove()" ontouchend="touchend()"></canvas>
+</body>
+</html>
