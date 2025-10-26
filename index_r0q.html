@@ -13,15 +13,15 @@ let params = {
         [0.0, 0.0],
         [1.0, 0.0]
     ],
-    a: [0.3, 0.1],
-    ascale: [0.2, 0.0],
-    b: [0.3, -0.1],
-    bscale: [0.25, 0.0],
+    a: [-0.0, 0.1],
+    ascale: [0.1, 0.0],
+    b: [0.2, -0.4],
+    bscale: [0.1, 0.0],
     z0: [0.0, 0.0],
-    z0Scale: 2.0,
-    mandelbrot: true,
-    color: true,
-    drag: "all",
+    z0Scale: [2.0, 0.0],
+    julia: false,
+    flip: false,
+    drag: "zoom",
     drag_start: [0.0, 0.0],
     timer: null,
     last_moved: 0,
@@ -39,7 +39,7 @@ function fragmentShaderSource(max_iter, max_period) {
         uniform bool uMandelbrot;
         uniform float uBailout;
         uniform float uBailin;
-        uniform float uBrightness;
+        uniform bool uFlip;
 
         const vec2 two = vec2(2.0, 0.0);
         const vec2 one = vec2(1.0, 0.0);
@@ -73,7 +73,7 @@ function fragmentShaderSource(max_iter, max_period) {
             return vec4(root1, root2);  // return both roots packed together
         }
 
-        vec4 mandelbrot(vec2 actual_z0) {
+        vec4 mandelbrot(vec2 A, vec2 B, vec2 actual_z0) {
             vec2 z = actual_z0;
             const int max_iteration = ${max_iter};
             int iter = 0;
@@ -83,8 +83,8 @@ function fragmentShaderSource(max_iter, max_period) {
             for (int iteration = 0; iteration < max_iteration; iteration++) {
                 vec2 z2 = mul(z, z);
                 z = div(
-                    mul(a, z2) + mul(b - one, z),
-                    mul(a - one, z) + b
+                    mul(A, z2) + mul(B - one, z),
+                    mul(A - one, z) + B
                 );
                 if (length(z) > uBailout) {
                     period = 0;
@@ -118,16 +118,13 @@ function fragmentShaderSource(max_iter, max_period) {
         }
 
         void main(void) {
+            vec2 q = (a + b) * 0.5;
+            vec2 A = div(mul(q, (q - one)), mul(a - q, a - q));
+            vec2 B = mul(one - A, q);
             if (uMandelbrot) {
-                vec4 roots = solve_quadratic(
-                    mul(a, a - one),
-                    2.0 * mul(a, b),
-                    mul(b, b - one)
-                );
-                gl_FragColor = 0.5 * mandelbrot(roots.xy) + 
-                               0.5 * mandelbrot(roots.zw);
+                gl_FragColor = mandelbrot(A, B, uFlip ? b : a);
             } else {
-                gl_FragColor = mandelbrot(z0);
+                gl_FragColor = mandelbrot(A, B, z0);
             }
         }
     `;
@@ -143,7 +140,7 @@ function setup() {
         precision highp float;
         attribute vec2 aVertexPosition;
         uniform vec2 uz0;
-        uniform float uz0Scale;
+        uniform vec2 uz0Scale;
         uniform vec2 ua;
         uniform vec2 ub;
         uniform vec2 uascale;
@@ -164,7 +161,7 @@ function setup() {
             vec2 vp = aVertexPosition * vec2(1.0, 2.0) + uNudge;
             a = ua + mul(vp, uascale);
             b = ub + mul(vp, ubscale);
-            z0 = uz0 + vp * uz0Scale;
+            z0 = uz0 + mul(vp, uz0Scale);
         }
     `;
 
@@ -308,8 +305,7 @@ function setup() {
             framebuffer,
             fbWidth,
             fbHeight,
-            uBrightness: ctx.getUniformLocation(shaderProgram, "uBrightness"),
-            brightness: 0.02,
+            uFlip: ctx.getUniformLocation(shaderProgram, "uFlip"),
         },
         high: {
             shaderProgram: shaderProgramHigh,
@@ -331,8 +327,7 @@ function setup() {
             framebuffer: framebufferHigh,
             fbWidth: fbWidthHigh,
             fbHeight: fbHeightHigh,
-            uBrightness: ctx.getUniformLocation(shaderProgramHigh, "uBrightness"),
-            brightness: 0.02,
+            uFlip: ctx.getUniformLocation(shaderProgramHigh, "uFlip"),
         },
         blit: {
             shaderProgram: shaderProgramBlit,
@@ -349,22 +344,23 @@ function paintMandelbrot(ctx, stuff, nudgeX, nudgeY) {
     ctx.uniform1f(stuff.uBailout, stuff.bailout);
     ctx.uniform1f(stuff.uBailin, stuff.bailin);
     ctx.uniform2f(stuff.uNudge, nudgeX, nudgeY);
-    if (params.mandelbrot) {
+    ctx.uniform1i(stuff.uFlip, params.flip);
+    if (params.julia) {
+        ctx.uniform1i(stuff.uMandelbrot, false);
+        ctx.uniform2f(stuff.uz0Scale, params.z0Scale[0], params.z0Scale[1]);
+        ctx.uniform2f(stuff.ua, params.a[0], params.a[1]);
+        ctx.uniform2f(stuff.ub, params.b[0], params.b[1]);
+        ctx.uniform2f(stuff.uascale, 0.0, 0.0);
+        ctx.uniform2f(stuff.ubscale, 0.0, 0.0);
+        ctx.uniform2f(stuff.uz0, params.z0[0], params.z0[1]);
+        ctx.uniform1f(stuff.uBrightness, stuff.brightness);
+    } else {
         ctx.uniform1i(stuff.uMandelbrot, true);
         ctx.uniform1f(stuff.uz0Scale, 0.0);
         ctx.uniform2f(stuff.ua, params.a[0], params.a[1]);
         ctx.uniform2f(stuff.uascale, params.ascale[0], params.ascale[1]);
         ctx.uniform2f(stuff.ub, params.b[0], params.b[1]);
         ctx.uniform2f(stuff.ubscale, params.bscale[0], params.bscale[1]);
-        ctx.uniform1f(stuff.uBrightness, stuff.brightness);
-    } else {
-        ctx.uniform1i(stuff.uMandelbrot, false);
-        ctx.uniform1f(stuff.uz0Scale, params.z0Scale);
-        ctx.uniform2f(stuff.ua, params.a[0], params.a[1]);
-        ctx.uniform2f(stuff.ub, params.b[0], params.b[1]);
-        ctx.uniform2f(stuff.uascale, 0.0, 0.0);
-        ctx.uniform2f(stuff.ubscale, 0.0, 0.0);
-        ctx.uniform2f(stuff.uz0, params.z0[0], params.z0[1]);
         ctx.uniform1f(stuff.uBrightness, stuff.brightness);
     }
     ctx.bindBuffer(ctx.ARRAY_BUFFER, stuff.vertexBuffer);
@@ -436,17 +432,19 @@ function paint() {
         }
     }
 
-    document.getElementById("button_ab").classList.remove("active");
-    document.getElementById("button_bc").classList.remove("active");
-    document.getElementById("button_ca").classList.remove("active");
+    document.getElementById("button_opp").classList.remove("active");
     document.getElementById("button_all").classList.remove("active");
-    if (params.drag === "ab") {
-        document.getElementById("button_ab").classList.add("active");
-    } else if (params.drag === "bc") {
-        document.getElementById("button_bc").classList.add("active");
-    } else if (params.drag === "ca") {
-        document.getElementById("button_ca").classList.add("active");
-    } else if (params.drag === "all") {
+    document.getElementById("button_flip").classList.remove("active");
+    document.getElementById("button_julia").classList.remove("active");
+    if (params.flip) {
+        document.getElementById("button_flip").classList.add("active");
+    }
+    if (params.julia) {
+        document.getElementById("button_julia").classList.add("active");
+    }
+    if (params.drag === "distort") {
+        document.getElementById("button_opp").classList.add("active");
+    } else if (params.drag === "zoom") {
         document.getElementById("button_all").classList.add("active");
     }
 }
@@ -495,16 +493,6 @@ function touchend() {
     event.preventDefault();
     const changedTouch = event.changedTouches[0];
     const ongoingTouch = touches.get(changedTouch.identifier);
-    const deltaX = changedTouch.pageX - ongoingTouch.pageX;
-    const deltaY = changedTouch.pageY - ongoingTouch.pageY;
-    if (params.drag === "a" || params.drag === "all") {
-        params.a[0] -= deltaX * 0.0001;
-        params.a[1] += deltaY * 0.0001;
-    }
-    if (params.drag === "b" || params.drag === "all") {
-        params.b[0] -= deltaX * 0.0001;
-        params.b[1] += deltaY * 0.0001;
-    }
     touches.delete(changedTouch.identifier);
 }
 
@@ -569,30 +557,37 @@ function scale_rotate(scaleX, scaleY) {
     if (params.timer !== null) {
         clearTimeout(params.timer);
     }
-    if (params.mandelbrot) {
-        if (params.drag === "ca") {
-            let c0 = -params.ascale[0] - params.bscale[0];
-            let c1 = -params.ascale[1] - params.bscale[1];
-            let cincrx = c0 * scaleX - c1 * scaleY - c0;
-            let cincry = c0 * scaleY + c1 * scaleX - c1;
-            params.ascale[0] -= cincrx;
-            params.ascale[1] -= cincry;
-        }
-        if (params.drag === "bc") {
-            params.bscale = [
-                params.bscale[0] * scaleX - params.bscale[1] * scaleY,
-                params.bscale[0] * scaleY + params.bscale[1] * scaleX
+    if (params.julia) {
+        if (params.drag === "zoom") {
+            params.z0Scale = [
+                params.z0Scale[0] * scaleX - params.z0Scale[1] * scaleY,
+                params.z0Scale[0] * scaleY + params.z0Scale[1] * scaleX
             ];
         }
-        if (params.drag === "ab") {
-            let aincrx = params.ascale[0] * scaleX - params.ascale[1] * scaleY - params.ascale[0];
-            let aincry = params.ascale[0] * scaleY + params.ascale[1] * scaleX - params.ascale[1];
-            params.ascale[0] += aincrx;
-            params.ascale[1] += aincry;
-            params.bscale[0] -= aincrx;
-            params.bscale[1] -= aincry;
+    } else {
+        if (params.drag === "distort") {
+            const a_hyp = 1.0 / Math.hypot(params.ascale[0], params.ascale[1]);
+            const b_hyp = 1.0 / Math.hypot(params.bscale[0], params.bscale[1]);
+            const a_amount = (0.9 * a_hyp + 0.1 * b_hyp) / (a_hyp + b_hyp);
+            const b_amount = (0.9 * b_hyp + 0.1 * a_hyp) / (a_hyp + b_hyp);
+            const a_diff = [
+                params.ascale[0] * scaleX - params.ascale[1] * scaleY - params.ascale[0],
+                params.ascale[0] * scaleY + params.ascale[1] * scaleX - params.ascale[1]
+            ];
+            const b_diff = [
+                params.bscale[0] * scaleX - params.bscale[1] * scaleY - params.bscale[0],
+                params.bscale[0] * scaleY + params.bscale[1] * scaleX - params.bscale[1]
+            ]
+            params.ascale = [
+                params.ascale[0] + a_diff[0] * a_amount,
+                params.ascale[1] + a_diff[1] * a_amount
+            ];
+            params.bscale = [
+                params.bscale[0] - b_diff[0] * b_amount,
+                params.bscale[1] - b_diff[1] * b_amount
+            ];
         }
-        if (params.drag === "all") {
+        if (params.drag === "zoom") {
             params.ascale = [
                 params.ascale[0] * scaleX - params.ascale[1] * scaleY,
                 params.ascale[0] * scaleY + params.ascale[1] * scaleX
@@ -602,8 +597,6 @@ function scale_rotate(scaleX, scaleY) {
                 params.bscale[0] * scaleY + params.bscale[1] * scaleX
             ];
         }
-    } else {
-        params.z0Scale /= scale;
     }
 }
 
@@ -613,30 +606,51 @@ function move(deltaX, deltaY) {
     if (params.timer !== null) {
         clearTimeout(params.timer);
     }
-    if (params.drag === "ca") {
-        const cscale = [
-            (params.ascale[0] + params.bscale[0]),
-            (params.ascale[1] + params.bscale[1])
-        ];
-        params.a[0] += deltaX * cscale[0] - deltaY * cscale[1];
-        params.a[1] += deltaY * cscale[0] + deltaX * cscale[1];
+    if (params.drag === "distort" && !params.julia) {
+        const a_hyp = 1.0 / Math.hypot(params.ascale[0], params.ascale[1]);
+        const b_hyp = 1.0 / Math.hypot(params.bscale[0], params.bscale[1]);
+        const a_amount = a_hyp / (a_hyp + b_hyp);
+        const b_amount = b_hyp / (a_hyp + b_hyp);
+        params.a[0] += (deltaX * params.ascale[0] - deltaY * params.ascale[1]) * a_amount;
+        params.a[1] += (deltaY * params.ascale[0] + deltaX * params.ascale[1]) * a_amount;
+        params.b[0] -= (deltaX * params.bscale[0] - deltaY * params.bscale[1]) * b_amount;
+        params.b[1] -= (deltaY * params.bscale[0] + deltaX * params.bscale[1]) * b_amount;
     }
-    if (params.drag === "bc") {
-        params.b[0] += deltaX * params.bscale[0] - deltaY * params.bscale[1];
-        params.b[1] += deltaY * params.bscale[0] + deltaX * params.bscale[1];
-    }
-    if (params.drag === "ab") {
-        params.a[0] += deltaX * params.ascale[0] - deltaY * params.ascale[1];
-        params.a[1] += deltaY * params.ascale[0] + deltaX * params.ascale[1];
-        params.b[0] -= deltaX * params.ascale[0] - deltaY * params.ascale[1];
-        params.b[1] -= deltaY * params.ascale[0] + deltaX * params.ascale[1];
-    }
-    if (params.drag === "all") {
+    if ((params.drag === "zoom" && !params.julia) || (params.drag === "distort" && params.julia)) {
         params.a[0] += deltaX * params.ascale[0] - deltaY * params.ascale[1];
         params.a[1] += deltaY * params.ascale[0] + deltaX * params.ascale[1];
         params.b[0] += deltaX * params.bscale[0] - deltaY * params.bscale[1];
         params.b[1] += deltaY * params.bscale[0] + deltaX * params.bscale[1];
     }
+    if (params.drag === "zoom" && params.julia) {
+        params.z0[0] += deltaX * params.z0Scale[0];
+        params.z0[1] += deltaY * params.z0Scale[1];
+    }
+}
+
+function flippen() {
+    params.flip = !params.flip;
+    if (params.julia) {
+        params.z0[0] = params.flip ? params.b[0] : params.a[0];
+        params.z0[1] = params.flip ? params.b[1] : params.a[1];
+    }
+    params.last_moved = performance.now();
+    params.high_count = 1;
+    if (params.timer !== null) {
+        clearTimeout(params.timer);
+    }
+    paint();
+}
+
+function toggle_julia() {
+    params.julia = !params.julia;
+    params.drag = params.julia ? "distort" : "zoom";
+    params.last_moved = performance.now();
+    params.high_count = 0;
+    if (params.timer !== null) {
+        clearTimeout(params.timer);
+    }
+    paint();
 }
 
 function start() {
@@ -656,10 +670,11 @@ button.active {
     </style>
 </head>
 <body>
-    <button id="button_ab" onclick="params.drag='ab'; paint()">AB</button>
-    <button id="button_bc" onclick="params.drag='bc'; paint()">BC</button>
-    <button id="button_ca" onclick="params.drag='ca'; paint()">CA</button>
-    <button id="button_all" onclick="params.drag='all'; paint()">All</button>
+    <button id="button_opp" onclick="params.drag='distort'; paint()">Distort</button>
+    <button id="button_all" onclick="params.drag='zoom'; paint()">Zoom</button>
+    &nbsp;&nbsp;
+    <button id="button_flip" onclick="flippen()">Flip</button>
+    <button id="button_julia" onclick="toggle_julia()">Julia</button>
     <br>
     <canvas id="canvas" width="400" height="800" onmousedown="mousedown()" onmousemove="mousemove()" onwheel="mousewheel()" ontouchstart="touchstart()" ontouchmove="touchmove()" ontouchend="touchend()"></canvas>
 </body>
