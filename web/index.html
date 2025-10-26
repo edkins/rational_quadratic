@@ -24,7 +24,8 @@ let params = {
     drag: "all",
     drag_start: [0.0, 0.0],
     timer: null,
-    last_moved: null
+    last_moved: 0,
+    high_count: 0,
 };
 let glStuff = null;
 let touches = new Map();
@@ -134,6 +135,7 @@ function setup() {
         uniform vec2 ub;
         uniform vec2 uascale;
         uniform vec2 ubscale;
+        uniform vec2 uNudge;
         varying vec2 a;
         varying vec2 b;
         varying vec2 z0;
@@ -146,7 +148,7 @@ function setup() {
 
         void main(void) {
             gl_Position = vec4(aVertexPosition, 0.0, 1.0);
-            vec2 vp = aVertexPosition * vec2(1.0, 2.0);
+            vec2 vp = aVertexPosition * vec2(1.0, 2.0) + uNudge;
             a = ua + mul(vp, uascale);
             b = ub + mul(vp, ubscale);
             z0 = uz0 + vp * uz0Scale;
@@ -154,8 +156,8 @@ function setup() {
     `;
 
     // Mandelbrot/Julia fragment shader program
-    const fsSource = fragmentShaderSource(200, 32);
-    const fsSourceHigh = fragmentShaderSource(200 + 2*2*2*2*2*3*3*5, 100);
+    const fsSource = fragmentShaderSource(400, 32);
+    const fsSourceHigh = fragmentShaderSource(400 + 2*2*2*2*2*3*3*5, 100);
 
     // Initialize shaders
     const vertexShader = ctx.createShader(ctx.VERTEX_SHADER);
@@ -190,6 +192,41 @@ function setup() {
     ctx.attachShader(shaderProgramHigh, fragmentShaderHigh);
     ctx.linkProgram(shaderProgramHigh);
 
+    // Shaders for texture blitting
+    const vsSourceBlit = `
+        attribute vec2 aVertexPosition;
+        varying vec2 vTexCoord;
+        void main(void) {
+            gl_Position = vec4(aVertexPosition, 0.0, 1.0);
+            vTexCoord = (aVertexPosition + vec2(1.0, 1.0)) * 0.5;
+        }
+    `;
+    const fsSourceBlit = `
+        precision highp float;
+        varying vec2 vTexCoord;
+        uniform sampler2D uTexture;
+        void main(void) {
+            gl_FragColor = texture2D(uTexture, vTexCoord);
+        }
+    `;
+    const vertexShaderBlit = ctx.createShader(ctx.VERTEX_SHADER);
+    ctx.shaderSource(vertexShaderBlit, vsSourceBlit);
+    ctx.compileShader(vertexShaderBlit);
+    const fragmentShaderBlit = ctx.createShader(ctx.FRAGMENT_SHADER);
+    ctx.shaderSource(fragmentShaderBlit, fsSourceBlit);
+    ctx.compileShader(fragmentShaderBlit);
+    if (!ctx.getShaderParameter(vertexShaderBlit, ctx.COMPILE_STATUS) ||
+        !ctx.getShaderParameter(fragmentShaderBlit, ctx.COMPILE_STATUS)) {
+        console.error("An error occurred compiling the blit shaders: " +
+            ctx.getShaderInfoLog(vertexShaderBlit) + " " +
+            ctx.getShaderInfoLog(fragmentShaderBlit));
+        return null;
+    }
+    const shaderProgramBlit = ctx.createProgram();
+    ctx.attachShader(shaderProgramBlit, vertexShaderBlit);
+    ctx.attachShader(shaderProgramBlit, fragmentShaderBlit);
+    ctx.linkProgram(shaderProgramBlit);
+
     // Set up square vertices
     const vertices = new Float32Array([
         -1, -1,
@@ -200,6 +237,42 @@ function setup() {
     const vertexBuffer = ctx.createBuffer();
     ctx.bindBuffer(ctx.ARRAY_BUFFER, vertexBuffer);
     ctx.bufferData(ctx.ARRAY_BUFFER, vertices, ctx.STATIC_DRAW);
+
+    // Create texture to hold low-iteration Mandelbrot image
+    const fbWidth = 100;
+    const fbHeight = 200;
+    const destTexture = ctx.createTexture();
+    ctx.bindTexture(ctx.TEXTURE_2D, destTexture);
+    ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGBA, fbWidth, fbHeight, 0, ctx.RGBA, ctx.UNSIGNED_BYTE, null);
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MIN_FILTER, ctx.LINEAR);
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MAG_FILTER, ctx.LINEAR);
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_S, ctx.CLAMP_TO_EDGE);
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_T, ctx.CLAMP_TO_EDGE);
+    ctx.bindTexture(ctx.TEXTURE_2D, null);
+
+    // Create framebuffer to render low-iteration Mandelbrot image into
+    const framebuffer = ctx.createFramebuffer();
+    ctx.bindFramebuffer(ctx.FRAMEBUFFER, framebuffer);
+    ctx.framebufferTexture2D(ctx.FRAMEBUFFER, ctx.COLOR_ATTACHMENT0, ctx.TEXTURE_2D, destTexture, 0);
+    ctx.bindFramebuffer(ctx.FRAMEBUFFER, null);
+
+    // Create texture to hold high-iteration Mandelbrot image
+    const fbWidthHigh = 400;
+    const fbHeightHigh = 800;
+    const destTextureHigh = ctx.createTexture();
+    ctx.bindTexture(ctx.TEXTURE_2D, destTextureHigh);
+    ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGBA, fbWidthHigh, fbHeightHigh, 0, ctx.RGBA, ctx.UNSIGNED_BYTE, null);
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MIN_FILTER, ctx.LINEAR);
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MAG_FILTER, ctx.LINEAR);
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_S, ctx.CLAMP_TO_EDGE);
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_T, ctx.CLAMP_TO_EDGE);
+    ctx.bindTexture(ctx.TEXTURE_2D, null);
+
+    // Create framebuffer to render high-iteration Mandelbrot image into
+    const framebufferHigh = ctx.createFramebuffer();
+    ctx.bindFramebuffer(ctx.FRAMEBUFFER, framebufferHigh);
+    ctx.framebufferTexture2D(ctx.FRAMEBUFFER, ctx.COLOR_ATTACHMENT0, ctx.TEXTURE_2D, destTextureHigh, 0);
+    ctx.bindFramebuffer(ctx.FRAMEBUFFER, null);
 
     return {
         main: {
@@ -215,7 +288,12 @@ function setup() {
             uColor: ctx.getUniformLocation(shaderProgram, "uColor"),
             uBailout: ctx.getUniformLocation(shaderProgram, "uBailout"),
             uBailin: ctx.getUniformLocation(shaderProgram, "uBailin"),
+            uNudge: ctx.getUniformLocation(shaderProgram, "uNudge"),
             vertexBuffer,
+            destTexture,
+            framebuffer,
+            fbWidth,
+            fbHeight,
         },
         high: {
             shaderProgram: shaderProgramHigh,
@@ -230,16 +308,28 @@ function setup() {
             uColor: ctx.getUniformLocation(shaderProgramHigh, "uColor"),
             uBailout: ctx.getUniformLocation(shaderProgramHigh, "uBailout"),
             uBailin: ctx.getUniformLocation(shaderProgramHigh, "uBailin"),
+            uNudge: ctx.getUniformLocation(shaderProgramHigh, "uNudge"),
             vertexBuffer,
+            destTexture: destTextureHigh,
+            framebuffer: framebufferHigh,
+            fbWidth: fbWidthHigh,
+            fbHeight: fbHeightHigh,
         },
+        blit: {
+            shaderProgram: shaderProgramBlit,
+            aVertexPosition: ctx.getAttribLocation(shaderProgramBlit, "aVertexPosition"),
+            uTexture: ctx.getUniformLocation(shaderProgramBlit, "uTexture"),
+            vertexBuffer,
+        }
     };
 }
 
-function paintMandelbrot(ctx, stuff, bailout, bailin) {
+function paintMandelbrot(ctx, stuff, bailout, bailin, nudgeX, nudgeY) {
     // Draw the Julia or Mandelbrot set
     ctx.useProgram(stuff.shaderProgram);
     ctx.uniform1f(stuff.uBailout, bailout);
     ctx.uniform1f(stuff.uBailin, bailin);
+    ctx.uniform2f(stuff.uNudge, nudgeX, nudgeY);
     if (params.mandelbrot) {
         ctx.uniform1i(stuff.uMandelbrot, true);
         ctx.uniform1f(stuff.uz0Scale, 0.0);
@@ -263,17 +353,67 @@ function paintMandelbrot(ctx, stuff, bailout, bailin) {
     ctx.drawArrays(ctx.TRIANGLE_STRIP, 0, 4);
 }
 
+function blit_texture(ctx, stuff, texture) {
+    ctx.useProgram(stuff.shaderProgram);
+    ctx.activeTexture(ctx.TEXTURE0);
+    ctx.bindTexture(ctx.TEXTURE_2D, texture);
+    ctx.uniform1i(stuff.uTexture, 0);
+
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, stuff.vertexBuffer);
+    ctx.enableVertexAttribArray(stuff.aVertexPosition);
+    ctx.vertexAttribPointer(stuff.aVertexPosition, 2, ctx.FLOAT, false, 0, 0);
+    ctx.drawArrays(ctx.TRIANGLE_STRIP, 0, 4);
+
+    ctx.bindTexture(ctx.TEXTURE_2D, null);
+}
+
 function paint() {
     const ctx = document.getElementById("canvas").getContext("webgl");
-    ctx.clear(ctx.COLOR_BUFFER_BIT);
-    ctx.viewport(0, 0, ctx.canvas.width, ctx.canvas.height);
-    
-    let reschedule = false;
-    if (params.last_moved === null || performance.now() - params.last_moved < 300) {
-        paintMandelbrot(ctx, glStuff.main, 100, 0.05);
-        reschedule = true;
+    if (params.high_count === 0) {
+        ctx.bindFramebuffer(ctx.FRAMEBUFFER, glStuff.main.framebuffer);
+        ctx.viewport(0, 0, glStuff.main.fbWidth, glStuff.main.fbHeight);
+        ctx.clear(ctx.COLOR_BUFFER_BIT);
+        paintMandelbrot(ctx, glStuff.main, 100, 0.05, 0, 0);
+
+        ctx.bindFramebuffer(ctx.FRAMEBUFFER, null);
+        ctx.viewport(0, 0, ctx.canvas.width, ctx.canvas.height);
+        ctx.clear(ctx.COLOR_BUFFER_BIT);
+        blit_texture(ctx, glStuff.blit, glStuff.main.destTexture);
+
+        if (params.timer !== null) {
+            clearTimeout(params.timer);
+        }
+        params.high_count += 1;
+        params.timer = setTimeout(paint, 300);
     } else {
-        paintMandelbrot(ctx, glStuff.high, 1000, 0.005);
+        ctx.bindFramebuffer(ctx.FRAMEBUFFER, glStuff.high.framebuffer);
+        ctx.viewport(0, 0, glStuff.high.fbWidth, glStuff.high.fbHeight);
+
+        if (params.high_count === 1) {
+            ctx.clear(ctx.COLOR_BUFFER_BIT);
+            paintMandelbrot(ctx, glStuff.high, 1000, 0.005, 0, 0);
+        } else {
+            ctx.enable(ctx.BLEND);
+            ctx.blendEquation(ctx.FUNC_ADD);
+            ctx.blendFuncSeparate(ctx.CONSTANT_ALPHA, ctx.ONE_MINUS_CONSTANT_ALPHA, ctx.CONSTANT_ALPHA, ctx.ONE_MINUS_CONSTANT_ALPHA);
+            ctx.blendColor(1.0, 1.0, 1.0, 1.0 / params.high_count);
+            let nudgeX = (Math.random() - 0.5) * 0.5 / 50;
+            let nudgeY = (Math.random() - 0.5) * 0.5 / 50;
+            paintMandelbrot(ctx, glStuff.high, 1000, 0.005, nudgeX, nudgeY);
+            ctx.disable(ctx.BLEND);
+        }
+
+        ctx.bindFramebuffer(ctx.FRAMEBUFFER, null);
+        ctx.viewport(0, 0, ctx.canvas.width, ctx.canvas.height);
+        blit_texture(ctx, glStuff.blit, glStuff.high.destTexture);
+        params.high_count += 1;
+
+        if (params.timer !== null) {
+            clearTimeout(params.timer);
+        }
+        if (params.high_count < 8) {
+            params.timer = setTimeout(paint, 10);
+        }
     }
 
     document.getElementById("button_ab").classList.remove("active");
@@ -288,15 +428,6 @@ function paint() {
         document.getElementById("button_ca").classList.add("active");
     } else if (params.drag === "all") {
         document.getElementById("button_all").classList.add("active");
-    }
-
-    if (reschedule) {
-        if (params.timer !== null) {
-            clearTimeout(params.timer);
-        }
-        params.timer = setTimeout(paint, 350);
-    } else {
-        params.timer = null;
     }
 }
 
@@ -337,7 +468,6 @@ function touchstart() {
       pageX: changedTouch.pageX,
       pageY: changedTouch.pageY,
     };
-    paint();
     touches.set(changedTouch.identifier, touch);
 }
 
@@ -355,7 +485,6 @@ function touchend() {
         params.b[0] -= deltaX * 0.0001;
         params.b[1] += deltaY * 0.0001;
     }
-    paint();
     touches.delete(changedTouch.identifier);
 }
 
@@ -416,6 +545,10 @@ function touchmove() {
 
 function scale_rotate(scaleX, scaleY) {
     params.last_moved = performance.now();
+    params.high_count = 0;
+    if (params.timer !== null) {
+        clearTimeout(params.timer);
+    }
     if (params.mandelbrot) {
         if (params.drag === "ca") {
             let c0 = -params.ascale[0] - params.bscale[0];
@@ -456,6 +589,10 @@ function scale_rotate(scaleX, scaleY) {
 
 function move(deltaX, deltaY) {
     params.last_moved = performance.now();
+    params.high_count = 0;
+    if (params.timer !== null) {
+        clearTimeout(params.timer);
+    }
     if (params.drag === "ca") {
         const cscale = [
             (params.ascale[0] + params.bscale[0]),
