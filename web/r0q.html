@@ -661,8 +661,8 @@ function distort_julia() {
         pressB = temp2;
     }
 
-    params.a = add(params.julia_distort_start_a, sub(pressA, origA));
-    params.b = add(params.julia_distort_start_b, sub(pressB, origB));
+    params.a = add(params.julia_distort_start_a, scale(0.1, sub(pressA, origA)));
+    params.b = add(params.julia_distort_start_b, scale(0.1, sub(pressB, origB)));
 
     params.last_moved = performance.now();
     params.high_count = 0;
