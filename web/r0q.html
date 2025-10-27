@@ -12,8 +12,8 @@ let params = {
     ascale: [0.1, 0.0],
     b: [0.2, -0.4],
     bscale: [0.1, 0.0],
-    z0: [0.0, 0.0],
-    z0Scale: [2.0, 0.0],
+    z0: [0.5, 0.0],
+    z0Scale: [0.6, 0.0],
     julia: false,
     flip: false,
     drag: "zoom",
@@ -107,11 +107,15 @@ function fragmentShaderSource(max_iter, max_period) {
             }
             // float brightnessf = 0.25 + sin(sqrt(max(float(brightness), 32.0) * 0.1)) * 0.25;
             // float brightnessf = 0.1 + log(float(brightness) + 10.0) * 0.1;
+            if (!uMandelbrot) {
+                float br = 1.0 - abs(float(brightness) - 100.0) / 100.0;
+                return vec4(br, br, br, 1.0);
+            }
             float brightnessf = -0.6 + sqrt(max(float(brightness), 32.0) + 10.0) * 0.1;
-            float theta = float(period) * 3.88;
             if (period == -1) {
                 return vec4(5.0 * brightnessf, 5.0 * brightnessf, 5.0 * brightnessf, 1.0);
             }
+            float theta = float(period) * 3.88;
             vec3 color = vec3(1.0 + cos(theta), 1.0 + cos(theta + 2.1), 1.0 + cos(theta + 4.2)) * brightnessf;
             return vec4(color, 1.0);
         }
@@ -639,56 +643,26 @@ function distort_julia() {
     const touch0 = touches.get(params.touch0id);
     const touch1 = touches.get(params.touch1id);
 
-    // const drag = scale(0.5, add(touch0.delta, touch1.delta));
-    // const orientation = sub([touch1.pageX, touch1.pageY], [touch0.pageX, touch0.pageY]);
-    // const orthog = [-orientation[1], orientation[0]];
-    // const expand = -0.003 * dot(sub(touch1.delta, touch0.delta), orientation);
-    // const rotate = 0.003 * dot(sub(touch1.delta, touch0.delta), orthog);
-
-    // const direction = sub(params.a, params.b);
-    // const orthogDirection = [-direction[1], direction[0]];
-    // const a_delta = add(drag, add(scale(expand, direction), scale(-rotate, orthogDirection)));
-    // const b_delta = add(drag, add(scale(-expand, direction), scale(rotate, orthogDirection)));
-
-    // params.a = add(params.a, div(a_delta, params.z0Scale));
-    // params.b = add(params.b, div(b_delta, params.z0Scale));
-
     const offsetX = event.target.getBoundingClientRect().left;
     const offsetY = event.target.getBoundingClientRect().top;
 
-    
-    const origA = add(params.z0, mul([(touch0.startX - offsetX) / 200 - 1, -(touch0.startY - offsetY) / 200 + 2], params.z0Scale));
-    const origB = add(params.z0, mul([(touch1.startX - offsetX) / 200 - 1, -(touch1.startY - offsetY) / 200 + 2], params.z0Scale));
-    const pressA = add(params.z0, mul([(touch0.pageX - offsetX) / 200 - 1, -(touch0.pageY - offsetY) / 200 + 2], params.z0Scale));
-    const pressB = add(params.z0, mul([(touch1.pageX - offsetX) / 200 - 1, -(touch1.pageY - offsetY) / 200 + 2], params.z0Scale));
-    
-    const shiftA = sub(
-        add(params.julia_distort_start_a,
-        div(
-            mul(
-                sub(pressA, origA),
-                sub(params.julia_distort_start_b, params.julia_distort_start_a),
-            ),
-            sub(origB, origA)
-        )
-    ), params.a);
-    
-    const shiftB = sub(
-        params.b = add(params.julia_distort_start_b,
-        div(
-            mul(
-                sub(pressB, origB),
-                sub(params.julia_distort_start_b, params.julia_distort_start_a),
-            ),
-            sub(origB, origA)
-        )
-    ), params.b);
-    const drag = scale(0.5, add(sub(pressA, origA), sub(pressB, origB)));
-    const wrongDrag = scale(0.5, sub(shiftA, shiftB));
-    const alter = sub(drag, wrongDrag);
-    
-    params.a = add(params.a, add(shiftA, alter));
-    params.b = add(params.b, add(shiftB, alter));
+    let origA = add(params.z0, mul([(touch0.startX - offsetX) / 200 - 1, -(touch0.startY - offsetY) / 200 + 2], params.z0Scale));
+    let origB = add(params.z0, mul([(touch1.startX - offsetX) / 200 - 1, -(touch1.startY - offsetY) / 200 + 2], params.z0Scale));
+    let pressA = add(params.z0, mul([(touch0.pageX - offsetX) / 200 - 1, -(touch0.pageY - offsetY) / 200 + 2], params.z0Scale));
+    let pressB = add(params.z0, mul([(touch1.pageX - offsetX) / 200 - 1, -(touch1.pageY - offsetY) / 200 + 2], params.z0Scale));
+
+    const swap = cnorm(sub(origA, params.julia_distort_start_b)) + cnorm(sub(origB, params.julia_distort_start_a)) < cnorm(sub(origA, params.julia_distort_start_a)) + cnorm(sub(origB, params.julia_distort_start_b));
+    if (swap) {
+        const temp = origA;
+        origA = origB;
+        origB = temp;
+        const temp2 = pressA;
+        pressA = pressB;
+        pressB = temp2;
+    }
+
+    params.a = add(params.julia_distort_start_a, sub(pressA, origA));
+    params.b = add(params.julia_distort_start_b, sub(pressB, origB));
 
     params.last_moved = performance.now();
     params.high_count = 0;
