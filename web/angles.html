@@ -604,6 +604,13 @@ function add(x, y) {
     ];
 }
 
+function add3(x, y, z) {
+    return [
+        x[0] + y[0] + z[0],
+        x[1] + y[1] + z[1]
+    ];
+}
+
 function sub(x, y) {
     return [
         x[0] - y[0],
@@ -717,24 +724,17 @@ function is_clockwise(ax, ay, bx, by, cx, cy) {
 }
 
 function reposition_triangle(ax, ay, bx, by, cx, cy) {
-    const at = Math.atan2(by - cy, bx - cx);
-    const bt = Math.atan2(cy - ay, cx - ax);
-    const ct = Math.atan2(ay - by, ax - bx);
-    const scale = 3.0 / (Math.hypot(ax - (ax + bx + cx) / 3, ay - (ay + by + cy) / 3) + 
-                         Math.hypot(bx - (ax + bx + cx) / 3, by - (ay + by + cy) / 3) + 
-                         Math.hypot(cx - (ax + bx + cx) / 3, cy - (ay + by + cy) / 3));
-    const denom = Math.sin(bt - ct) + Math.sin(ct - at) + Math.sin(at - bt);
-    const ah = scale * Math.sin(bt - ct) / denom;
-    const bh = scale * Math.sin(ct - at) / denom;
-    const ch = scale * Math.sin(at - bt) / denom;
-    params.ascale = [
-        ah * Math.sin(at),
-        ah * Math.cos(at)
-    ];
-    params.bscale = [
-        bh * Math.sin(bt),
-        bh * Math.cos(bt)
-    ];
+    const p = [1.0, 0.0];
+    const q = [-0.5, 0.86602540378];
+    const r = [-0.5, -0.86602540378];
+    const denom = scale(2.0, add3(mul(p, [ax,ay]), mul(q, [bx,by]), mul(r, [cx,cy])));
+
+    params.ascale = div(p, denom);
+    params.bscale = div(q, denom);
+
+    params.a = sub([1/2, 0], mul(params.ascale, [ax, ay]));
+    params.b = sub([1/2, 0], mul(params.bscale, [bx, by]));
+
     params.vertices = [
         [ax, ay],
         [bx, by],
