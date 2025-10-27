@@ -16,7 +16,7 @@ let params = {
     z0Scale: 2.0,
     mandelbrot: true,
     color: true,
-    drag: "all",
+    drag: "zoom",
     drag_start: [0.0, 0.0],
     timer: null,
     last_moved: 0,
@@ -67,11 +67,13 @@ function fragmentShaderSource(max_iter, max_period) {
                 (x.y * y.x - x.x * y.y) / denom);
         }
 
-        vec4 solve_quadratic(vec2 a, vec2 b, vec2 c) {
-            vec2 discriminant = csqrt(mul(b, b) - 4.0 * mul(a, c));
+        vec2 solve_quadratic(vec2 a, vec2 b, vec2 c) {
+            float ftheta = 2.0; // move branch cut
+            vec2 fudge = vec2(cos(ftheta), sin(ftheta));
+            vec2 fudge2 = div(one, mul(fudge, fudge));
+            vec2 discriminant = -mul(fudge, csqrt(mul(fudge2, mul(b, b) - 4.0 * mul(a, c))));
             vec2 root1 = div(-b + discriminant, 2.0 * a);
-            vec2 root2 = div(-b - discriminant, 2.0 * a);
-            return vec4(root1, root2);  // return both roots packed together
+            return root1;
         }
 
         vec4 mandelbrot(vec2 actual_z0) {
@@ -120,13 +122,12 @@ function fragmentShaderSource(max_iter, max_period) {
 
         void main(void) {
             if (uMandelbrot) {
-                vec4 roots = solve_quadratic(
+                vec2 root = solve_quadratic(
                     mul(a, a - one),
                     2.0 * mul(a, b),
                     mul(b, b - one)
                 );
-                gl_FragColor = 0.5 * mandelbrot(roots.xy) + 
-                               0.5 * mandelbrot(roots.zw);
+                gl_FragColor = mandelbrot(root);
             } else {
                 gl_FragColor = mandelbrot(z0);
             }
@@ -539,40 +540,45 @@ function mousewheel() {
 
 function touchstart() {
     event.preventDefault();
-    const changedTouch = event.changedTouches[0];
+    for (const changedTouch of event.changedTouches) {
+        if (touches.size === 0) {
+            const offsetX = event.target.getBoundingClientRect().left;
+            const offsetY = event.target.getBoundingClientRect().top;
+            const x = (changedTouch.pageX - offsetX) / 200 - 1;
+            const y = -(changedTouch.pageY - offsetY) / 200 + 2;
 
-    if (touches.size === 0) {
-        const offsetX = event.target.getBoundingClientRect().left;
-        const offsetY = event.target.getBoundingClientRect().top;
-        const x = (changedTouch.pageX - offsetX) / 200 - 1;
-        const y = -(changedTouch.pageY - offsetY) / 200 + 2;
-
-        const aVal = add(params.a, mul([x, y], params.ascale));
-        const bVal = add(params.b, mul([x, y], params.bscale));
-        const cVal = sub([1.0, 0.0], add(aVal, bVal));
-        if (aVal > bVal && aVal > cVal) {
-            params.touchSide = "a";
-        } else if (bVal > cVal) {
-            params.touchSide = "b";
-        } else {
-            params.touchSide = "c";
+            const aVal = add(params.a, mul([x, y], params.ascale));
+            const bVal = add(params.b, mul([x, y], params.bscale));
+            const cVal = sub([1.0, 0.0], add(aVal, bVal));
+            if (aVal > bVal && aVal > cVal) {
+                params.touchSide = "a";
+            } else if (bVal > cVal) {
+                params.touchSide = "b";
+            } else {
+                params.touchSide = "c";
+            }
+            params.touchStartId = changedTouch.identifier;
         }
-        params.touchStartA = [params.a[0], params.a[1]];
-        params.touchStartB = [params.b[0], params.b[1]];
-        params.touchStartAScale = [params.ascale[0], params.ascale[1]];
-        params.touchStartBScale = [params.bscale[0], params.bscale[1]];
-        params.touchStartId = changedTouch.identifier;
+
+        const touch = {
+            pageX: changedTouch.pageX,
+            pageY: changedTouch.pageY,
+            // startX: changedTouch.pageX,
+            // startY: changedTouch.pageY,
+            identifier: changedTouch.identifier,
+        };
+
+        touches.set(changedTouch.identifier, touch);
     }
 
-    const touch = {
-        pageX: changedTouch.pageX,
-        pageY: changedTouch.pageY,
-        startX: changedTouch.pageX,
-        startY: changedTouch.pageY,
-        identifier: changedTouch.identifier,
-    };
-
-    touches.set(changedTouch.identifier, touch);
+    params.touchStartA = [params.a[0], params.a[1]];
+    params.touchStartB = [params.b[0], params.b[1]];
+    params.touchStartAScale = [params.ascale[0], params.ascale[1]];
+    params.touchStartBScale = [params.bscale[0], params.bscale[1]];
+    for (const touch of touches.values()) {
+        touch.startX = touch.pageX;
+        touch.startY = touch.pageY;
+    }
 }
 
 function touchend() {
@@ -642,7 +648,7 @@ function touchmove() {
         }
     }
 
-    if (touches.size === 1 || touches.size === 2) {
+    if (touches.size === 1) {
         const offsetX = event.target.getBoundingClientRect().left;
         const offsetY = event.target.getBoundingClientRect().top;
 
@@ -650,52 +656,67 @@ function touchmove() {
         if (!touch0) {
             return;
         }
-        let x = -(touch0.pageX - touch0.startX) / 200;
-        let y = (touch0.pageY - touch0.startY) / 200;
-        let r0 = [0,0];
-        let r1 = [0,0];
-        for (const touch of touches.values()) {
-            let sign = (touch.identifier === params.touchStartId) ? 1 : -1;
-            r0[0] += sign * touch.startX;
-            r0[1] -= sign * touch.startY;
-            r1[0] += sign * touch.pageX;
-            r1[1] -= sign * touch.pageY;
+        let x = (touch0.pageX - touch0.startX) / 200;
+        let y = -(touch0.pageY - touch0.startY) / 200;
+
+        let ascaled = mul(params.touchStartAScale, [x,y]);
+        let bscaled = mul(params.touchStartBScale, [x,y]);
+        if (params.drag === "zoom") {
+            params.a = sub(params.touchStartA, ascaled);
+            params.b = sub(params.touchStartB, bscaled);
+        } else if (params.drag === "distort") {
+            params.a[1] = params.touchStartA[1] - ascaled[1];
+            params.b[1] = params.touchStartB[1] - bscaled[1];
         }
 
-        const ascaleh = cnorm(params.touchStartAScale);
-        const bscaleh = cnorm(params.touchStartBScale);
-        const cscaleh = cnorm(add(params.touchStartAScale, params.touchStartBScale));
+        // params.ascale[1] = params.touchStartAScale[1] - ascaled[1];
+        // params.bscale[1] = params.touchStartBScale[1] - bscaled[1];
 
-        if (params.touchSide === "a") {
-            const bdistrib = bscaleh / (bscaleh + cscaleh);
-            const delta = mul([x,y], params.touchStartAScale);
-            params.a = add(params.touchStartA, delta);
-            params.b = add(params.touchStartB, scale(-bdistrib, delta));
-            
-            if (touches.size === 2) {
-                const deltaR = sub(mul(params.touchStartAScale, div(r0, r1)), params.touchStartAScale);
-                params.ascale = add(params.touchStartAScale, deltaR);
-                params.bscale = add(params.touchStartBScale, scale(-1.0 * bdistrib, deltaR));
-            }
-        } else if (params.touchSide === "b") {
-            const adistrib = ascaleh / (ascaleh + cscaleh);
-            const delta = mul([x,y], params.touchStartBScale);
-            params.b = add(params.touchStartB, delta);
-            params.a = add(params.touchStartA, scale(-adistrib, delta));
-        } else if (params.touchSide === "c") {
-            const adistrib = ascaleh / (ascaleh + bscaleh);
-            const delta = mul([x,y], scale(-1, add(params.touchStartAScale, params.touchStartBScale)));
-            params.a = add(params.touchStartA, scale(-adistrib, delta));
-            params.b = add(params.touchStartB, scale(-(1.0 - adistrib), delta));
-        }
-
-        params.last_moved = performance.now();
-        params.high_count = 0;
-        if (params.timer !== null) {
-            clearTimeout(params.timer);
-        }
-        paint();
+        repaint();
     }
+    
+    if (touches.size === 2) {
+        const touch0 = touches.get(params.touchStartId);
+        const touch1 = Array.from(touches.values()).find(t => t.identifier !== params.touchStartId);
+        if (!touch0 || !touch1) {
+            return;
+        }
+
+        let x0 = (touch0.pageX - touch0.startX) / 200;
+        let y0 = -(touch0.pageY - touch0.startY) / 200;
+
+        let x1 = (touch1.pageX - touch1.startX) / 200;
+        let y1 = -(touch1.pageY - touch1.startY) / 200;
+
+        let startd = [
+            touch1.startX - touch0.startX,
+            -(touch1.startY - touch0.startY)
+        ];
+        let endd = [
+            touch1.pageX - touch0.pageX,
+            -(touch1.pageY - touch0.pageY)
+        ];
+        let rotate = div(startd, endd);
+
+        let ascaled = mul(params.touchStartAScale, [x0,y0]);
+        let bscaled = mul(params.touchStartBScale, [x0,y0]);
+        if (params.drag === "zoom") {
+            params.a = sub(params.touchStartA, ascaled);
+            params.b = sub(params.touchStartB, bscaled);
+            params.ascale = mul(params.touchStartAScale, rotate);
+            params.bscale = mul(params.touchStartBScale, rotate);
+        }
+        repaint();
+    }
+}
+
+function repaint() {
+    params.last_moved = performance.now();
+    params.high_count = 0;
+    if (params.timer !== null) {
+        clearTimeout(params.timer);
+    }
+    paint();
 }
 
 function scale_rotate(scaleX, scaleY) {
@@ -750,7 +771,7 @@ function move(deltaX, deltaY) {
     }
     if (params.drag === "ca") {
         const cscale = [
-            (params.ascale[0] + params.bscale[0]),
+            (scale[0] + params.bscale[0]),
             (params.ascale[1] + params.bscale[1])
         ];
         params.a[0] += deltaX * cscale[0] - deltaY * cscale[1];
@@ -774,8 +795,19 @@ function move(deltaX, deltaY) {
     }
 }
 
+function update_buttons() {
+    document.getElementById("button_distort").classList.remove("active");
+    document.getElementById("button_zoom").classList.remove("active");
+    if (params.drag === "distort") {
+        document.getElementById("button_distort").classList.add("active");
+    } else if (params.drag === "zoom") {
+        document.getElementById("button_zoom").classList.add("active");
+    }
+}
+
 function start() {
     glStuff = setup();
+    update_buttons();
     paint();
 }
 
@@ -791,10 +823,8 @@ button.active {
     </style>
 </head>
 <body>
-    <button id="button_ab" onclick="params.drag='ab'; paint()">AB</button>
-    <button id="button_bc" onclick="params.drag='bc'; paint()">BC</button>
-    <button id="button_ca" onclick="params.drag='ca'; paint()">CA</button>
-    <button id="button_all" onclick="params.drag='all'; paint()">All</button>
+    <button id="button_zoom" onclick="params.drag='zoom'; update_buttons()">Zoom</button>
+    <button id="button_distort" onclick="params.drag='distort'; update_buttons()">Distort</button>
     <br>
     <canvas id="canvas" width="400" height="800" onmousedown="mousedown()" onmousemove="mousemove()" onwheel="mousewheel()" ontouchstart="touchstart()" ontouchmove="touchmove()" ontouchend="touchend()"></canvas>
 </body>
