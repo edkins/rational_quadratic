@@ -8,11 +8,6 @@
 "use strict";
 
 let params = {
-    fixedPoints: [
-        [-1.0, 0.0],
-        [0.0, 0.0],
-        [1.0, 0.0]
-    ],
     a: [-0.0, 0.1],
     ascale: [0.1, 0.0],
     b: [0.2, -0.4],
@@ -26,6 +21,10 @@ let params = {
     timer: null,
     last_moved: 0,
     high_count: 0,
+    julia_distort_start_a: [0.0, 0.0],
+    julia_distort_start_b: [0.0, 0.0],
+    touch0id: null,
+    touch1id: null,
 };
 let glStuff = null;
 let touches = new Map();
@@ -237,6 +236,41 @@ function setup() {
     ctx.attachShader(shaderProgramBlit, fragmentShaderBlit);
     ctx.linkProgram(shaderProgramBlit);
 
+    // Shaders for point markers
+    const vsSourcePoint = `
+        precision highp float;
+        uniform vec2 uVertexPosition;
+        uniform float uPointSize;
+        void main(void) {
+            gl_Position = vec4(uVertexPosition * vec2(1.0, 0.5), 0.0, 1.0);
+            gl_PointSize = uPointSize;
+        }
+    `;
+    const fsSourcePoint = `
+        precision highp float;
+        uniform vec3 uColor;
+        void main(void) {
+            gl_FragColor = vec4(uColor, 1.0);
+        }
+    `;
+    const vertexShaderPoint = ctx.createShader(ctx.VERTEX_SHADER);
+    ctx.shaderSource(vertexShaderPoint, vsSourcePoint);
+    ctx.compileShader(vertexShaderPoint);
+    const fragmentShaderPoint = ctx.createShader(ctx.FRAGMENT_SHADER);
+    ctx.shaderSource(fragmentShaderPoint, fsSourcePoint);
+    ctx.compileShader(fragmentShaderPoint);
+    if (!ctx.getShaderParameter(vertexShaderPoint, ctx.COMPILE_STATUS) ||
+        !ctx.getShaderParameter(fragmentShaderPoint, ctx.COMPILE_STATUS)) {
+        console.error("An error occurred compiling the point shaders: " +
+            ctx.getShaderInfoLog(vertexShaderPoint) + " " +
+            ctx.getShaderInfoLog(fragmentShaderPoint));
+        return null;
+    }
+    const shaderProgramPoint = ctx.createProgram();
+    ctx.attachShader(shaderProgramPoint, vertexShaderPoint);
+    ctx.attachShader(shaderProgramPoint, fragmentShaderPoint);
+    ctx.linkProgram(shaderProgramPoint);
+
     // Set up square vertices
     const vertices = new Float32Array([
         -1, -1,
@@ -334,6 +368,12 @@ function setup() {
             aVertexPosition: ctx.getAttribLocation(shaderProgramBlit, "aVertexPosition"),
             uTexture: ctx.getUniformLocation(shaderProgramBlit, "uTexture"),
             vertexBuffer,
+        },
+        point: {
+            shaderProgram: shaderProgramPoint,
+            uVertexPosition: ctx.getUniformLocation(shaderProgramPoint, "uVertexPosition"),
+            uPointSize: ctx.getUniformLocation(shaderProgramPoint, "uPointSize"),
+            uColor: ctx.getUniformLocation(shaderProgramPoint, "uColor"),
         }
     };
 }
@@ -383,6 +423,17 @@ function blit_texture(ctx, stuff, texture) {
     ctx.bindTexture(ctx.TEXTURE_2D, null);
 }
 
+function draw_point(ctx, stuff, x, y, r, g, b) {
+    const xy = div(sub([x, y], params.z0), params.z0Scale);
+
+    ctx.useProgram(stuff.shaderProgram);
+    ctx.uniform2f(stuff.uVertexPosition, xy[0], xy[1]);
+    ctx.uniform1f(stuff.uPointSize, 10.0);
+    ctx.uniform3f(stuff.uColor, r, g, b);
+
+    ctx.drawArrays(ctx.POINTS, 0, 1);
+}
+
 function paint() {
     const ctx = document.getElementById("canvas").getContext("webgl");
     if (params.high_count === 0) {
@@ -395,6 +446,13 @@ function paint() {
         ctx.viewport(0, 0, ctx.canvas.width, ctx.canvas.height);
         ctx.clear(ctx.COLOR_BUFFER_BIT);
         blit_texture(ctx, glStuff.blit, glStuff.main.destTexture);
+
+        if (params.julia) {
+            draw_point(ctx, glStuff.point, params.a[0], params.a[1], 0.0, 0.0, 1.0);
+            draw_point(ctx, glStuff.point, params.b[0], params.b[1], 0.0, 0.0, 1.0);
+            draw_point(ctx, glStuff.point, 0.0, 0.0, 0.0, 0.75, 0.75);
+            draw_point(ctx, glStuff.point, 1.0, 0.0, 0.0, 0.75, 0.75);
+        }
 
         if (params.timer !== null) {
             clearTimeout(params.timer);
@@ -424,6 +482,13 @@ function paint() {
         blit_texture(ctx, glStuff.blit, glStuff.high.destTexture);
         params.high_count += 1;
 
+        if (params.julia) {
+            draw_point(ctx, glStuff.point, params.a[0], params.a[1], 0.0, 0.0, 1.0);
+            draw_point(ctx, glStuff.point, params.b[0], params.b[1], 0.0, 0.0, 1.0);
+            draw_point(ctx, glStuff.point, 0.0, 0.0, 0.0, 0.75, 0.75);
+            draw_point(ctx, glStuff.point, 1.0, 0.0, 0.0, 0.75, 0.75);
+        }
+
         if (params.timer !== null) {
             clearTimeout(params.timer);
         }
@@ -434,27 +499,23 @@ function paint() {
 }
 
 function update_buttons() {
-    document.getElementById("button_opp").classList.remove("active");
-    document.getElementById("button_all").classList.remove("active");
+    document.getElementById("button_distort").classList.remove("active");
+    document.getElementById("button_zoom").classList.remove("active");
     document.getElementById("button_flip").classList.remove("active");
     document.getElementById("button_julia").classList.remove("active");
-    document.getElementById("button_opp").classList.remove("disabled");
-    document.getElementById("button_all").classList.remove("disabled");
     document.getElementById("button_flip").classList.remove("disabled");
     if (params.julia) {
         document.getElementById("button_julia").classList.add("active");
-        document.getElementById("button_opp").classList.add("disabled");
-        document.getElementById("button_all").classList.add("disabled");
         document.getElementById("button_flip").classList.add("disabled");
     } else {
         if (params.flip) {
             document.getElementById("button_flip").classList.add("active");
         }
-        if (params.drag === "distort") {
-            document.getElementById("button_opp").classList.add("active");
-        } else if (params.drag === "zoom") {
-            document.getElementById("button_all").classList.add("active");
-        }
+    }
+    if (params.drag === "distort") {
+        document.getElementById("button_distort").classList.add("active");
+    } else if (params.drag === "zoom") {
+        document.getElementById("button_zoom").classList.add("active");
     }
 }
 
@@ -492,10 +553,21 @@ function touchstart() {
     event.preventDefault();
     const changedTouch = event.changedTouches[0];
     const touch = {
-      pageX: changedTouch.pageX,
-      pageY: changedTouch.pageY,
+        startX: changedTouch.pageX,
+        startY: changedTouch.pageY,
+        pageX: changedTouch.pageX,
+        pageY: changedTouch.pageY,
     };
     touches.set(changedTouch.identifier, touch);
+
+    if (touches.size === 1 && params.julia) {
+        params.touch0id = changedTouch.identifier;
+    }
+    if (touches.size === 2 && params.julia) {
+        params.touch1id = changedTouch.identifier;
+        params.julia_distort_start_a = [params.a[0], params.a[1]];
+        params.julia_distort_start_b = [params.b[0], params.b[1]];
+    }
 }
 
 function touchend() {
@@ -503,6 +575,90 @@ function touchend() {
     const changedTouch = event.changedTouches[0];
     const ongoingTouch = touches.get(changedTouch.identifier);
     touches.delete(changedTouch.identifier);
+}
+
+function add(x, y) {
+    return [
+        x[0] + y[0],
+        x[1] + y[1]
+    ];
+}
+
+function sub(x, y) {
+    return [
+        x[0] - y[0],
+        x[1] - y[1]
+    ];
+}
+
+function mul(x, y) {
+    return [
+        x[0] * y[0] - x[1] * y[1],
+        x[0] * y[1] + x[1] * y[0]
+    ];
+}
+
+function div(x, y) {
+    const denom = y[0] * y[0] + y[1] * y[1];
+    return [
+        (x[0] * y[0] + x[1] * y[1]) / denom,
+        (x[1] * y[0] - x[0] * y[1]) / denom
+    ];
+}
+
+function scale(r, c) {
+    return [
+        r * c[0],
+        r * c[1]
+    ];
+}
+
+function cnorm(c) {
+    return Math.hypot(c[0], c[1]);
+}
+
+function dot(x, y) {
+    return x[0] * y[0] + x[1] * y[1];
+}
+
+function distort_julia() {
+    if (touches.size !== 2) {
+        return;
+    }
+    for (let i = 0; i < event.changedTouches.length; i++) {
+        const touch = event.changedTouches[i];
+        const ongoingTouch = touches.get(touch.identifier);
+        if (!ongoingTouch) {
+            return;
+        }
+        ongoingTouch.delta = [(touch.pageX - ongoingTouch.pageX) / 50, -(touch.pageY - ongoingTouch.pageY) / 50];
+        ongoingTouch.pageX = touch.pageX;
+        ongoingTouch.pageY = touch.pageY;
+    }
+
+    const touch0 = touches.get(params.touch0id);
+    const touch1 = touches.get(params.touch1id);
+
+    const drag = scale(0.5, add(touch0.delta, touch1.delta));
+    const orientation = sub([touch1.pageX, touch1.pageY], [touch0.pageX, touch0.pageY]);
+    const orthog = [-orientation[1], orientation[0]];
+    const expand = -0.003 * dot(sub(touch1.delta, touch0.delta), orientation);
+    const rotate = 0.003 * dot(sub(touch1.delta, touch0.delta), orthog);
+
+    const direction = sub(params.a, params.b);
+    const orthogDirection = [-direction[1], direction[0]];
+    const a_delta = add(drag, add(scale(expand, direction), scale(-rotate, orthogDirection)));
+    const b_delta = add(drag, add(scale(-expand, direction), scale(rotate, orthogDirection)));
+
+    params.a = add(params.a, div(a_delta, params.z0Scale));
+    params.b = add(params.b, div(b_delta, params.z0Scale));
+
+    params.last_moved = performance.now();
+    params.high_count = 0;
+    if (params.timer !== null) {
+        clearTimeout(params.timer);
+    }
+    paint();
 }
 
 function doubletouch() {
@@ -529,12 +685,7 @@ function doubletouch() {
 
     const deltaX = -((touch1.pageX + touch2.pageX) / 2 - (prevTouch1.pageX + prevTouch2.pageX) / 2) * 0.005;
     const deltaY = ((touch1.pageY + touch2.pageY) / 2 - (prevTouch1.pageY + prevTouch2.pageY) / 2) * 0.005;
-    if (params.julia) {
-        params.z0[0] += deltaX * params.z0Scale[0] - deltaY * params.z0Scale[1];
-        params.z0[1] += deltaX * params.z0Scale[1] + deltaY * params.z0Scale[0];
-    } else {
-        move(deltaX, deltaY);
-    }
+    move(deltaX, deltaY);
 
     prevTouch1.pageX = touch1.pageX;
     prevTouch1.pageY = touch1.pageY;
@@ -545,6 +696,10 @@ function doubletouch() {
 
 function touchmove() {
     event.preventDefault();
+    if (params.julia && params.drag === "distort") {
+        distort_julia();
+        return;
+    }
     if (event.changedTouches.length === 2) {
         doubletouch();
         return;
@@ -572,10 +727,28 @@ function scale_rotate(scaleX, scaleY) {
         clearTimeout(params.timer);
     }
     if (params.julia) {
-        params.z0Scale = [
-            params.z0Scale[0] * scaleX - params.z0Scale[1] * scaleY,
-            params.z0Scale[0] * scaleY + params.z0Scale[1] * scaleX
-        ];
+        // if (params.drag === "distort") {
+        //     const middle = [params.a[0] * 0.5 + params.b[0] * 0.5,
+        //                     params.a[1] * 0.5 + params.b[1] * 0.5];
+        //     const dif = [
+        //         params.a[0] - middle[0],
+        //         params.a[1] - middle[1]
+        //     ];
+        //     params.a = [
+        //         middle[0] + (dif[0] * scaleX - dif[1] * scaleY),
+        //         middle[1] + (dif[0] * scaleY + dif[1] * scaleX)
+        //     ];
+        //     params.b = [
+        //         middle[0] - (dif[0] * scaleX - dif[1] * scaleY),
+        //         middle[1] - (dif[0] * scaleY + dif[1] * scaleX)
+        //     ];
+        // }
+        if (params.drag === "zoom") {
+            params.z0Scale = [
+                params.z0Scale[0] * scaleX - params.z0Scale[1] * scaleY,
+                params.z0Scale[0] * scaleY + params.z0Scale[1] * scaleX
+            ];
+        }
     } else {
         if (params.drag === "distort") {
             const a_hyp = 1.0 / Math.hypot(params.ascale[0], params.ascale[1]);
@@ -628,11 +801,21 @@ function move(deltaX, deltaY) {
         params.b[0] -= (deltaX * params.bscale[0] - deltaY * params.bscale[1]) * b_amount;
         params.b[1] -= (deltaY * params.bscale[0] + deltaX * params.bscale[1]) * b_amount;
     }
-    if (params.drag === "zoom" || params.julia) {
+    if (params.drag === "zoom" && !params.julia) {
         params.a[0] += deltaX * params.ascale[0] - deltaY * params.ascale[1];
         params.a[1] += deltaY * params.ascale[0] + deltaX * params.ascale[1];
         params.b[0] += deltaX * params.bscale[0] - deltaY * params.bscale[1];
         params.b[1] += deltaY * params.bscale[0] + deltaX * params.bscale[1];
+    }
+    // if (params.drag === "distort" && params.julia) {
+    //     params.a[0] += deltaX * 0.01;
+    //     params.a[1] += deltaY * 0.01;
+    //     params.b[0] -= deltaX * 0.01;
+    //     params.b[1] -= deltaY * 0.01;
+    // }
+    if (params.drag === "zoom" && params.julia) {
+        params.z0[0] += deltaX * params.z0Scale[0] - deltaY * params.z0Scale[1];
+        params.z0[1] += deltaY * params.z0Scale[0] + deltaX * params.z0Scale[1];
     }
 }
 
@@ -667,15 +850,13 @@ function toggle_julia() {
 }
 
 function set_mandelbrot_drag(mode) {
-    if (params.julia) {
-        return;
-    }
     params.drag = mode;
     update_buttons();
 }
 
 function start() {
     glStuff = setup();
+    update_buttons();
     paint();
 }
 
@@ -694,8 +875,8 @@ button.disabled {
     </style>
 </head>
 <body>
-    <button id="button_opp" onclick="set_mandelbrot_drag('distort')">Distort</button>
-    <button id="button_all" onclick="set_mandelbrot_drag('zoom')">Zoom</button>
+    <button id="button_distort" onclick="set_mandelbrot_drag('distort')">Distort</button>
+    <button id="button_zoom" onclick="set_mandelbrot_drag('zoom')">Zoom</button>
     &nbsp;
     <button id="button_flip" onclick="flippen()">Flip</button>
     &nbsp;&nbsp;&nbsp;&nbsp;
