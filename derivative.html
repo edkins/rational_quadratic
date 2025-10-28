@@ -11,7 +11,7 @@ let params = {
     a: [0.3, 0.1],
     ascale: [0.0, 0.2],
     b: [0.3, -0.1],
-    bscale: [0.25, 0.0],
+    bscale: [0.0, 0.0],
     z0: [0.0, 0.0],
     z0Scale: 2.0,
     mandelbrot: true,
@@ -27,6 +27,7 @@ let params = {
     touchStartBScale: null,
     touchSide: null,
     touchStartId: null,
+    plot_points: [],
 };
 let glStuff = null;
 let touches = new Map();
@@ -431,12 +432,11 @@ function blit_texture(ctx, stuff, texture) {
 }
 
 function draw_dots(ctx, stuff) {
-    for (let i = 0; i < 3; i++) {
+    for (const pt of params.plot_points) {
         ctx.useProgram(stuff.shaderProgram);
-        ctx.uniform2f(stuff.uVertexPosition, params.vertices[i][0], params.vertices[i][1]);
+        ctx.uniform2f(stuff.uVertexPosition, pt[0], pt[1]);
         ctx.uniform1f(stuff.uPointSize, 10.0);
         ctx.uniform3f(stuff.uColor, 0, 0, 1);
-
         ctx.drawArrays(ctx.POINTS, 0, 1);
     }
 }
@@ -453,7 +453,7 @@ function paint() {
         ctx.viewport(0, 0, ctx.canvas.width, ctx.canvas.height);
         ctx.clear(ctx.COLOR_BUFFER_BIT);
         blit_texture(ctx, glStuff.blit, glStuff.main.destTexture);
-        // draw_dots(ctx, glStuff.point);
+        draw_dots(ctx, glStuff.point);
 
         if (params.timer !== null) {
             clearTimeout(params.timer);
@@ -481,7 +481,7 @@ function paint() {
         ctx.bindFramebuffer(ctx.FRAMEBUFFER, null);
         ctx.viewport(0, 0, ctx.canvas.width, ctx.canvas.height);
         blit_texture(ctx, glStuff.blit, glStuff.high.destTexture);
-        // draw_dots(ctx, glStuff.point);
+        draw_dots(ctx, glStuff.point);
 
         params.high_count += 1;
 
@@ -497,31 +497,19 @@ function paint() {
 function mousedown() {
     const x = event.clientX;
     const y = event.clientY;
-    params.drag_start = [x, y];
-    // update_point(x,y, false, params.last_alternate);
-    event.preventDefault();
+    const originX = event.target.getBoundingClientRect().left;
+    const originY = event.target.getBoundingClientRect().top;
+    const xy = [
+        (x - originX) / 200 - 1,
+        -(y - originY) / 200 + 2
+    ];
+    target(xy[0], xy[1]);
 }
 
 function mousemove() {
-    const x = event.clientX;
-    const y = event.clientY;
-    if (event.buttons === 1) {
-        move(
-            -(x - params.drag_start[0]) * 0.005,
-            (y - params.drag_start[1]) * 0.005
-        );
-        paint();
-    }
-    params.drag_start = [x, y];
-    event.preventDefault();
 }
 
 function mousewheel() {
-    const delta = event.deltaY;
-    const scale = Math.exp(delta * 0.001);
-    scale_rotate(scale, 0);
-    paint();
-    event.preventDefault();
 }
 
 function touchstart() {
@@ -587,6 +575,13 @@ function add3(x, y, z) {
     return [
         x[0] + y[0] + z[0],
         x[1] + y[1] + z[1]
+    ];
+}
+
+function add4(x, y, z, w) {
+    return [
+        x[0] + y[0] + z[0] + w[0],
+        x[1] + y[1] + z[1] + w[1]
     ];
 }
 
@@ -789,6 +784,263 @@ function update_buttons() {
     } else if (params.drag === "zoom") {
         document.getElementById("button_zoom").classList.add("active");
     }
+}
+
+
+function csqrt(z) {
+    const r = Math.sqrt(cnorm(z));
+    const theta = Math.atan2(z[1], z[0]);
+    return [
+        r * Math.cos(theta / 2.0),
+        r * Math.sin(theta / 2.0)
+    ];
+}
+
+function solve_quadratic(a, b, c) {
+    const discriminant = csqrt(sub(mul(b, b), scale(4.0, mul(a, c))));
+    const root1 = div(sub(discriminant, b), scale(2.0, a));
+    return root1;
+}
+
+class Derivatives {
+    constructor(value, dz, dzz, dp, dpz, dq, dqz) {
+        this.value = value;
+        this.dz = dz;
+        this.dzz = dzz;
+        this.dp = dp;
+        this.dpz = dpz;
+        this.dq = dq;
+        this.dqz = dqz;
+    }
+
+    static fromConstant(value) {
+        const z = [0.0, 0.0];
+        return new Derivatives(value, z, z, z, z, z, z, z, z);
+    }
+
+    static fromRealConstant(value) {
+        return Derivatives.fromConstant([value, 0.0]);
+    }
+
+    static fromZ(z) {
+        const one = [1.0, 0.0];
+        const zero = [0.0, 0.0];
+        return new Derivatives(z, one, zero, zero, zero, zero, zero);
+    }
+
+    static fromP(p) {
+        const one = [1.0, 0.0];
+        const zero = [0.0, 0.0];
+        return new Derivatives(p, zero, zero, one, zero, zero, zero);
+    }
+
+    static fromQ(q) {
+        const one = [1.0, 0.0];
+        const zero = [0.0, 0.0];
+        return new Derivatives(q, zero, zero, zero, zero, one, zero);
+    }
+
+    add(other) {
+        return new Derivatives(
+            add(this.value, other.value),
+            add(this.dz, other.dz),
+            add(this.dzz, other.dzz),
+            add(this.dp, other.dp),
+            add(this.dpz, other.dpz),
+            add(this.dq, other.dq),
+            add(this.dqz, other.dqz)
+        );
+    }
+
+    sub(other) {
+        return new Derivatives(
+            sub(this.value, other.value),
+            sub(this.dz, other.dz),
+            sub(this.dzz, other.dzz),
+            sub(this.dp, other.dp),
+            sub(this.dpz, other.dpz),
+            sub(this.dq, other.dq),
+            sub(this.dqz, other.dqz)
+        );
+    }
+
+    scale(r) {
+        return new Derivatives(
+            scale(r, this.value),
+            scale(r, this.dz),
+            scale(r, this.dzz),
+            scale(r, this.dp),
+            scale(r, this.dpz),
+            scale(r, this.dq),
+            scale(r, this.dqz)
+        );
+    }
+
+    mul(other) {
+        return new Derivatives(
+            mul(this.value, other.value),
+            add(
+                mul(this.dz, other.value),
+                mul(this.value, other.dz)
+            ),
+            add3(
+                mul(this.dzz, other.value),
+                scale(2.0, mul(this.dz, other.dz)),
+                mul(this.value, other.dzz)
+            ),
+            add(
+                mul(this.dp, other.value),
+                mul(this.value, other.dp)
+            ),
+            add4(
+                mul(this.dpz, other.value),
+                mul(this.dp, other.dz),
+                mul(this.dz, other.dp),
+                mul(this.value, other.dpz)
+            ),
+            add(
+                mul(this.dq, other.value),
+                mul(this.value, other.dq)
+            ),
+            add4(
+                mul(this.dqz, other.value),
+                mul(this.dq, other.dz),
+                mul(this.dz, other.dq),
+                mul(this.value, other.dqz)
+            )
+        );
+    }
+
+    recip() {
+        const f = div([1.0, 0.0], this.value);
+        const f1 = scale(-1, mul(f, f));
+        const f2 = scale(-2, mul(mul(f, f), f));
+        return new Derivatives(
+            f,
+            mul(f1, this.dz),
+            add(
+                mul(f2, mul(this.dz, this.dz)),
+                mul(f1, this.dzz)
+            ),
+            mul(f1, this.dp),
+            add(
+                mul(f2, mul(this.dz, this.dp)),
+                mul(f1, this.dpz)
+            ),
+            mul(f1, this.dq),
+            add(
+                mul(f2, mul(this.dz, this.dq)),
+                mul(f1, this.dqz)
+            )
+        );
+    }
+
+    square() {
+        return this.mul(this);
+    }
+
+    div(other) {
+        return this.mul(other.recip());
+    }
+}
+
+function target(x, y) {
+    const maxiter = 1000;
+    const maxper = 10;
+    const bailin = 0.0005;
+    let pixel = [x,y];
+    let a = add(params.a, mul(params.ascale, pixel));
+    let b = add(params.b, mul(params.bscale, pixel));
+    let a1 = sub(a, [1.0, 0.0]);
+    let b1 = sub(b, [1.0, 0.0]);
+    let z = solve_quadratic(
+        mul(a, a1),
+        scale(2.0, mul(a, b)),
+        mul(b, b1)
+    );
+    let orbitStart = null;
+    let period = null;
+    for (let i = 0 ; i < maxiter; i++) {
+        const z2 = mul(z, z);
+        z = div(
+            add(mul(a, z2), mul(b1, z)),
+            add(mul(a1, z), b)
+        );
+        if (i === maxiter - maxper) {
+            orbitStart = z;
+        }
+        if (i > maxiter - maxper) {
+            const d = cnorm(sub(z, orbitStart));
+            if (d < bailin) {
+                period = i - (maxiter - maxper);
+                break;
+            }
+        }
+    }
+    console.log("Targeted period:", period);
+    // console.log("Targeted point:", z);
+    if (period === null) {
+        return;
+    }
+
+    let Z = Derivatives.fromZ(z);
+    const A = Derivatives.fromP(a);
+    const B = Derivatives.fromQ(b);
+    const A1 = A.sub(Derivatives.fromRealConstant(1.0));
+    const B1 = B.sub(Derivatives.fromRealConstant(1.0));
+    for (let i = 0; i < period; i++) {
+        const Z2 = Z.square();
+        const numerator = A.mul(Z2).add(B1.mul(Z));
+        const denominator = A1.mul(Z).add(B);
+        Z = numerator.div(denominator);
+    }
+    console.log(Z);
+
+    const rootDirP = div(Z.dp, sub([1.0, 0.0], Z.dz));
+    const rootDirQ = div(Z.dq, sub([1.0, 0.0], Z.dz));
+    // console.log("Root direction P:", rootDirP);
+    // console.log("Root direction Q:", rootDirQ);
+
+    // Let's test it out!
+    // const epsilon = [0.000, 0.0001];
+    // const a_ = a;
+    // const b_ = add(b, epsilon);
+    // let z_ = add(z, mul(rootDirQ, epsilon));
+    // let a1_ = sub(a_, [1.0, 0.0]);
+    // let b1_ = sub(b_, [1.0, 0.0]);
+    // console.log("Starting z_", z_);
+    // for (let i = 0; i < period; i++) {
+    //     const z2_ = mul(z_, z_);
+    //     z_ = div(
+    //         add(mul(a_, z2_), mul(b1_, z_)),
+    //         add(mul(a1_, z_), b_)
+    //     );
+    // }
+    // console.log("Ending z_ ", z_);
+
+    // console.log("d/dz", Z.dz);
+
+    const rootTrackP = add(mul(Z.dzz, rootDirP), Z.dpz);
+    const rootTrackQ = add(mul(Z.dzz, rootDirQ), Z.dqz);
+    console.log("Root track P:", rootTrackP);
+    console.log("Arg:", Math.atan2(rootTrackP[1], rootTrackP[0]) * 180.0 / Math.PI, "Abs:", cnorm(rootTrackP));
+    // console.log("Root track Q:", rootTrackQ);
+    const rootTrackPixel = add(mul(rootTrackP, params.ascale), mul(rootTrackQ, params.bscale));
+    console.log("Root track pixel:", rootTrackPixel);
+
+    params.plot_points = [
+        add(pixel, div([1.0,0.0], rootTrackPixel))
+    ];
+    repaint();
+
+    // const dirP = rootTrackP;
+    // const dirQ = rootTrackQ;
+    // const sf = 0.1 / Math.hypot(cnorm(dirP), cnorm(dirQ), cnorm(add(dirP, dirQ)));
+    // params.a = add(a, scale(sf, dirP));
+    // params.b = add(b, scale(sf, dirQ));
+    // params.ascale = scale(sf, dirP);
+    // params.bscale = scale(sf, dirQ);
+    // repaint();
 }
 
 function start() {
