@@ -83,21 +83,15 @@ function fragmentShaderSource(max_iter, max_period) {
                     z2 - one
                 );
                 float theta2 = atan(z.y, z.x);
-                flip = !flip;
-                if (flip) {
-                    theta /= 2.0;
-                    if (angle_distance(theta, theta2) > angle_distance(theta + 3.1415926535, theta2)) {
-                        theta += 3.1415926535;
-                    }
-                }
                 if (length(z) > uBailout) {
-                    if (flip || iteration <= -1) {
+                    if (flip) {
                         return vec4(0.5, 0.5, 0.5, 1.0);
+                    } else {
+                        theta += add;
+                        return vec4(0.5 + vec2(cos(theta), sin(theta)) * 0.5, 0.0, 1.0);
                     }
-                    theta = theta2 * pow(0.5, fiter * 0.5);
-                    theta += add;
-                    return vec4(0.5 + vec2(cos(theta), sin(theta)) * 0.5, 0.0, 1.0);
                 }
+                flip = !flip;
             }
 
             return vec4(0.0, 0.0, 0.0, 1.0);
