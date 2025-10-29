@@ -84,6 +84,7 @@ function fragmentShaderSource(max_iter, max_period) {
             vec2 prevZ = z;
             int brightness = 0;
             int period = -1;
+            float distance = 10000.0;
             for (int iteration = 0; iteration < max_iteration; iteration++) {
                 vec2 z2 = mul(z, z);
                 z = div(
@@ -91,28 +92,16 @@ function fragmentShaderSource(max_iter, max_period) {
                     mul(a - one, z) + b
                 );
                 if (length(z) > uBailout) {
-                    period = 0;
-                    brightness = iteration;
                     break;
                 }
 
-                float d = length(z - prevZ);
-                if (d < uBailin && brightness == 0) {
-                    brightness = iteration;
-                }
-                if (mod(float(iteration), 32.0) < 0.001 || iteration == ${max_iter - max_period}) {
-                    prevZ = z;
-                }
-                if (iteration > ${max_iter - max_period}) {
-                    if (d < uBailin) {
-                        period = iteration - ${max_iter - max_period + 1};
-                        break;
-                    }
+                float d = length(z - actual_z0);
+                if (d < distance) {
+                    distance = d;
+                    period = iteration;
                 }
             }
-            // float brightnessf = 0.25 + sin(sqrt(max(float(brightness), 32.0) * 0.1)) * 0.25;
-            // float brightnessf = 0.1 + log(float(brightness) + 10.0) * 0.1;
-            float brightnessf = -0.6 + sqrt(max(float(brightness), 32.0) + 10.0) * 0.1;
+            float brightnessf = 0.5 + distance;
             float theta = float(period) * 3.88;
             if (period == -1) {
                 return vec4(5.0 * brightnessf, 5.0 * brightnessf, 5.0 * brightnessf, 1.0);
