@@ -9,7 +9,7 @@
 
 let params = {
     ccenter: [0.25, 0.0],
-    cscale: [2.5, 0.0],
+    cscale: [5, 0.0],
 
     c: [-0.0, 0.0],
     z0: [0.0, 0.0],
@@ -65,17 +65,28 @@ function fragmentShaderSource(max_iter, max_period) {
             vec2 z = actual_z0;
             float theta = atan(z.y, z.x);
             bool flip = true;
+            float add0 = 0.0;
+            float remember0 = 0.0;
             float add = 0.0;
             float remember = 0.0;
+            float blue = 0.0;
+            float blue2 = 0.0;
             for (int iteration = 0; iteration < ${max_period}; iteration++) {
                 float fiter = float(iteration);
                 vec2 z2 = mul(z, z);
+                if (flip && z.x < 0.0) {
+                    blue2 = 1.0;
+                }
                 if (!flip) {
                     float p = 3.1415926535 * pow(0.5, 0.5 * (fiter - 1.0));
                     if (z.x < 0.0) {
                         add = p;
                         add += remember;
+                        // add0 = p;
+                        // add0 += remember0;
+                        blue = 1.0;
                     }
+                    remember0 += (z.y < 0.0) ? p : 0.0;
                     remember += (z.y < 0.0) ? p : 0.0;
                 }
                 z = div(
@@ -85,10 +96,26 @@ function fragmentShaderSource(max_iter, max_period) {
                 float theta2 = atan(z.y, z.x);
                 if (length(z) > uBailout) {
                     if (flip) {
-                        return vec4(0.5, 0.5, 0.5, 1.0);
+                        // return vec4(0.0, 0.0, 0.0, 1.0);
+                        // theta = theta2 * pow(0.5, fiter * 0.5);
+                        // theta += add;
+                        // return vec4(0.5 + vec2(cos(theta), sin(theta)) * 0.5, 0.0, 1.0);
+                        return 0.5 + 0.5 * vec4(
+                            cos(blue2 * 0.1),
+                            cos(blue2 * 3.1),
+                            cos(blue2 * 0.05),
+                            1.0
+                        );
                     } else {
-                        theta += add;
-                        return vec4(0.5 + vec2(cos(theta), sin(theta)) * 0.5, 0.0, 1.0);
+                        // theta = theta2 * pow(0.5, (fiter - 1.0) * 0.5);
+                        // theta += add0;
+                        // return vec4(0.5 + vec2(cos(theta), sin(theta)) * 0.5, blue, 1.0);
+                        return 0.5 + 0.5 * vec4(
+                            cos(blue * 3.1),
+                            cos(blue * 0.1),
+                            cos(blue * 0.05),
+                            1.0
+                        );
                     }
                 }
                 flip = !flip;
