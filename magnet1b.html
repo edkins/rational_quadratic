@@ -66,43 +66,17 @@ function fragmentShaderSource(max_iter, max_period) {
             float theta = atan(z.y, z.x);
             bool flip = true;
             float add = 0.0;
-            bool remember = false;
-            float blue = 0.0;
-            bool remember2 = false;
+            float remember = 0.0;
             for (int iteration = 0; iteration < ${max_period}; iteration++) {
                 float fiter = float(iteration);
                 vec2 z2 = mul(z, z);
-                if (z.x < 0.0 && iteration == 1) {
-                    add = 3.1415926535;
-                }
-                if (iteration == 1) {
-                    remember = z.y < 0.0;
-                }
-                if (iteration == 3) {
+                if (!flip) {
+                    float p = 3.1415926535 * pow(0.5, 0.5 * (fiter - 1.0));
                     if (z.x < 0.0) {
-                        // blue = remember ? 1.0 : 0.0;
-                        add = 3.1415926535 * 0.5;
-                        if (remember) {
-                            add += 3.1415926535;
-                        }
-                    } else {
-                        // add = add
+                        add = p;
+                        add += remember;
                     }
-                }
-                if (iteration == 3) {
-                    remember2 = z.y < 0.0;
-                }
-                if (iteration == 5) {
-                    if (z.x < 0.0) {
-                        // blue = (remember && !remember2) ? 1.0 : 0.0;
-                        add = 3.1415926535 * 0.25;
-                        if (remember) {
-                            add += 3.1415926535;
-                        }
-                        if (remember2) {
-                            add += 3.1415926535 * 0.5;
-                        }
-                    }
+                    remember += (z.y < 0.0) ? p : 0.0;
                 }
                 z = div(
                     z2 + c,
@@ -122,7 +96,7 @@ function fragmentShaderSource(max_iter, max_period) {
                     }
                     theta = theta2 * pow(0.5, fiter * 0.5);
                     theta += add;
-                    return vec4(0.5 + vec2(cos(theta), sin(theta)) * 0.5, blue, 1.0);
+                    return vec4(0.5 + vec2(cos(theta), sin(theta)) * 0.5, 0.0, 1.0);
                 }
             }
 
