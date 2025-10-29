@@ -8,8 +8,8 @@
 "use strict";
 
 let params = {
-    ccenter: [-0.5, 0.0],
-    cscale: [1.0, 0.0],
+    ccenter: [-1, 0.0],
+    cscale: [2, 0.0],
 
     c: [-0.0, 0.0],
     z0: [0.0, 0.0],
@@ -40,6 +40,7 @@ function fragmentShaderSource(max_iter, max_period) {
         varying vec2 z0;
         uniform bool uMandelbrot;
         uniform float uBailout;
+        const vec2 one = vec2(1.0, 0.0);
 
         vec2 mul(vec2 x, vec2 y) {
             return vec2(
@@ -47,17 +48,104 @@ function fragmentShaderSource(max_iter, max_period) {
                 x.x * y.y + x.y * y.x);
         }
 
-        vec4 mandelbrot(vec2 actual_z0) {
-            vec2 z = actual_z0;
+        vec2 div(vec2 x, vec2 y) {
+            float denom = y.x * y.x + y.y * y.y;
+            return vec2(
+                (x.x * y.x + x.y * y.y) / denom,
+                (x.y * y.x - x.x * y.y) / denom);
+        }
+
+        vec2 csqrt(vec2 z) {
+            float r = length(z);
+            float theta = atan(z.y, z.x);
+            return vec2(
+                sqrt(r) * cos(theta / 2.0),
+                sqrt(r) * sin(theta / 2.0)
+            );
+        }
+
+        vec4 solve_quadratic(vec2 a, vec2 b, vec2 c, vec2 fudge) {
+            vec2 discriminant = csqrt(mul(mul(fudge, fudge), (mul(b, b) - 4.0 * mul(a, c))));
+            discriminant = div(discriminant, fudge);
+            vec2 root1 = div(-b + discriminant, 2.0 * a);
+            vec2 root2 = div(-b - discriminant, 2.0 * a);
+            return vec4(root1, root2);  // return both roots packed together
+        }
+
+        struct D {
+            vec2 value;
+            vec2 dz;
+        };
+
+        D dsquare(D z) {
+            return D(
+                mul(z.value, z.value),
+                2.0 * mul(z.value, z.dz));
+        }
+
+        D dadd(D a, D b) {
+            return D(
+                a.value + b.value,
+                a.dz + b.dz);
+        }
+
+        D dsub(D a, D b) {
+            return D(
+                a.value - b.value,
+                a.dz - b.dz);
+        }
+
+        D f(D z) {
+            for (int iteration = 0; iteration < 1; iteration++) {
+                z = dadd(dsquare(z), D(c, vec2(0.0, 0.0)));
+            }
+            return z;
+        }
+
+        vec2 solve() {
+            vec2 z = vec2(0.0, 0.0);
+            for (int iteration = 0; iteration < 10; iteration++) {
+                D dz = D(z, vec2(1.0, 0.0));
+                D fz = dsub(f(D(z, vec2(1.0, 0.0))), dz);
+                z = z - div(fz.value, fz.dz);
+            }
+            return z;
+        }
+
+        vec4 mandelbrot() {
+            vec2 a = vec2(0.25, 0.0) + mul(vec2(-0.5, 0.0), c);
+            vec2 b = vec2(0.3, -0.0) + mul(vec2(0.5, 0.0), c);
+            vec2 z = solve_quadratic(
+                mul(a, a - one),
+                2.0 * mul(a, b),
+                mul(b, b - one),
+                c
+            ).xy;
+            vec2 prevZ = vec2(0.0, 0.0);
+            vec2 prevPrevZ = vec2(0.0, 0.0);
+            for (int iteration = 0; iteration < ${max_period}; iteration++) {
+                vec2 z2 = mul(z, z);
+                z = div(
+                    mul(a, z2) + mul(b - one, z),
+                    mul(a - one, z) + b
+                );
+                if (length(z) > uBailout || length(z - prevPrevZ) < 0.001) {
+                    float fiter = float(iteration);
+                    return 0.5 + vec4(0.5 * cos(fiter * 0.15), 0.5 * cos(fiter * 0.1), 0.5 * cos(fiter * 0.05), 1.0);
+                }
+                prevPrevZ = prevZ;
+                prevZ = z;
+            }
+
+            return vec4(0.0, 0.0, 0.0, 1.0);
+        }
+
+        vec4 julia() {
+            vec2 z = z0;
             for (int iteration = 0; iteration < ${max_iter}; iteration++) {
                 z = mul(z, z) + c;
                 if (length(z) > uBailout) {
-                    float fiter = float(iteration);
-                    return 0.5 * vec4(
-                        1.0 + sin(fiter),
-                        1.0 + sin(fiter * 0.5),
-                        1.0 + sin(fiter * 0.25),
-                        2.0);
+                    return vec4(1.0, float(iteration) * 0.01, 0.0, 1.0);
                 }
             }
             return vec4(0.0, 0.0, 0.0, 1.0);
@@ -65,9 +153,9 @@ function fragmentShaderSource(max_iter, max_period) {
 
         void main(void) {
             if (uMandelbrot) {
-                gl_FragColor = mandelbrot(vec2(0.0, 0.0));
+                gl_FragColor = mandelbrot();
             } else {
-                gl_FragColor = mandelbrot(z0);
+                gl_FragColor = julia();
             }
         }
     `;

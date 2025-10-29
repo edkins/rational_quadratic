@@ -47,17 +47,52 @@ function fragmentShaderSource(max_iter, max_period) {
                 x.x * y.y + x.y * y.x);
         }
 
-        vec4 mandelbrot(vec2 actual_z0) {
-            vec2 z = actual_z0;
+        vec2 div(vec2 x, vec2 y) {
+            float denom = y.x * y.x + y.y * y.y;
+            return vec2(
+                (x.x * y.x + x.y * y.y) / denom,
+                (x.y * y.x - x.x * y.y) / denom);
+        }
+
+        struct D {
+            vec2 value;
+            vec2 dz;
+            vec2 dc;
+        };
+
+        D dsquare(D z) {
+            return D(
+                mul(z.value, z.value),
+                2.0 * mul(z.value, z.dz),
+                2.0 * mul(z.value, z.dc));
+        }
+
+        D dadd(D a, D b) {
+            return D(
+                a.value + b.value,
+                a.dz + b.dz,
+                a.dc + b.dc);
+        }
+
+        vec4 mandelbrot() {
+            D z = D(c, vec2(1.0, 0.0), vec2(1.0, 0.0));
+            D Dc = D(c, vec2(0.0, 0.0), vec2(1.0, 0.0));
+            for (int iteration = 0; iteration < ${max_iter}; iteration++) {
+                z = dadd(dsquare(z), Dc);
+                if (length(z.value) > uBailout) {
+                    vec2 ratio = div(z.dc, z.dz);
+                    return vec4(0.5 + ratio.x * 0.5, 0.5 + ratio.y * 0.5, 0.0, 1.0);
+                }
+            }
+            return vec4(0.0, 0.0, 0.0, 1.0);
+        }
+
+        vec4 julia() {
+            vec2 z = z0;
             for (int iteration = 0; iteration < ${max_iter}; iteration++) {
                 z = mul(z, z) + c;
                 if (length(z) > uBailout) {
-                    float fiter = float(iteration);
-                    return 0.5 * vec4(
-                        1.0 + sin(fiter),
-                        1.0 + sin(fiter * 0.5),
-                        1.0 + sin(fiter * 0.25),
-                        2.0);
+                    return vec4(1.0, float(iteration) * 0.01, 0.0, 1.0);
                 }
             }
             return vec4(0.0, 0.0, 0.0, 1.0);
@@ -65,9 +100,9 @@ function fragmentShaderSource(max_iter, max_period) {
 
         void main(void) {
             if (uMandelbrot) {
-                gl_FragColor = mandelbrot(vec2(0.0, 0.0));
+                gl_FragColor = mandelbrot();
             } else {
-                gl_FragColor = mandelbrot(z0);
+                gl_FragColor = julia();
             }
         }
     `;
