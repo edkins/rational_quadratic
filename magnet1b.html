@@ -9,7 +9,7 @@
 
 let params = {
     ccenter: [0.25, 0.0],
-    cscale: [5, 0.0],
+    cscale: [2.5, 0.0],
 
     c: [-0.0, 0.0],
     z0: [0.0, 0.0],
@@ -55,6 +55,15 @@ function fragmentShaderSource(max_iter, max_period) {
                 (x.y * y.x - x.x * y.y) / denom);
         }
 
+        vec2 csqrt(vec2 z) {
+            float r = length(z);
+            float theta = atan(z.y, z.x);
+            return vec2(
+                sqrt(r) * cos(theta / 2.0),
+                sqrt(r) * sin(theta / 2.0)
+            );
+        }
+
         float angle_distance(float a, float b) {
             float twopi = 6.28318530718;
             float diff = mod(b - a, twopi);
@@ -63,45 +72,84 @@ function fragmentShaderSource(max_iter, max_period) {
 
         vec4 mandelbrot(vec2 actual_z0) {
             vec2 z = actual_z0;
-            float theta = atan(z.y, z.x);
             bool flip = true;
-            float lziter0 = -1.0;
-            float lziter1 = -2.0;
-            vec2 was0 = vec2(0.0, 0.0);
-            vec2 was1 = vec2(0.0, 0.0);
+            int lziter0 = 0;
+            int lziter1 = 1;
+            bool highlight0 = false;
+            bool highlight1 = false;
+            bool escaped = false;
+            bool prevHighlight = false;
+            bool prevPrevFoo = false;
+            bool prevFoo = false;
+            bool foo0 = false;
+            bool foo1 = false;
+            vec2 thing = div(one, csqrt(one - c));
+            vec2 thing2 = div(one, csqrt(-c + 0.5 * one));
             for (int iteration = 0; iteration < ${max_period}; iteration++) {
                 float fiter = float(iteration);
                 if (flip && z.x < 0.0) {
-                    lziter0 = fiter;
-                    was0 = z;
+                    lziter0 = iteration + 2;
+                    highlight0 = prevHighlight;
+                    foo0 = prevPrevFoo;
                 }
                 if (!flip && z.x < 0.0) {
-                    lziter1 = fiter;
-                    was1 = z;
+                    lziter1 = iteration + 2;
+                    highlight1 = prevHighlight;
+                    foo1 = prevPrevFoo;
                 }
+                prevHighlight = mul(z, thing).x < 0.0;
+                prevPrevFoo = prevFoo;
+                prevFoo = mul(z, thing2).x < 0.0;
                 vec2 z2 = mul(z, z);
                 z = div(
                     z2 + c,
                     z2 - one
                 );
-                float theta2 = atan(z.y, z.x);
                 if (length(z) > uBailout) {
-                    vec2 z_ = flip ? was0 : was1;
-                    return 0.5 + 0.5 * vec4(
-                        z_,
-                        1.0,
-                        1.0
-                    );
+                    escaped = true;
+                    break;
                 }
                 flip = !flip;
             }
 
+            if (escaped) {
+                int lziter = !flip ? lziter1 : lziter0;
+                bool highlight = !flip ? highlight1 : highlight0;
+                bool foo = !flip ? foo1 : foo0;
+                vec4 color = vec4(1.0, 1.0, 1.0, 1.0);
+                if (lziter == 0) {
+                    color = vec4(0.2, 0.2, 0.2, 1.0);
+                    color *= 2.0;
+                } else if (lziter == 1) {
+                    color = vec4(1.0, 0.0, 0.0, 1.0);
+                } else if (lziter == 2) {
+                    color = vec4(0.0, 1.0, 0.0, 1.0);
+                } else if (lziter == 3) {
+                    color = vec4(1.0, 1.0, 0.0, 1.0);
+                    if (!highlight) {
+                        color *= 2.0;
+                    }
+                } else if (lziter == 4) {
+                    color = vec4(0.0, 0.0, 1.0, 1.0);
+                    if (highlight && !foo) {
+                        color *= 2.0;
+                    }
+                } else if (lziter == 5) {
+                    color = vec4(1.0, 0.0, 1.0, 1.0);
+                } else if (lziter == 6) {
+                    color = vec4(0.0, 1.0, 1.0, 1.0);
+                } else {
+                    color = vec4(1.0, 1.0, 1.0, 1.0);
+                }
+                color *= vec4(0.5, 0.5, 0.5, 1.0);
+                return color;
+            }
             return vec4(0.0, 0.0, 0.0, 1.0);
         }
 
         void main(void) {
             if (uMandelbrot) {
-                gl_FragColor = mandelbrot(c);
+                gl_FragColor = mandelbrot(vec2(0.0, 0.0));
             } else {
                 gl_FragColor = mandelbrot(z0);
             }
@@ -218,8 +266,9 @@ function setup() {
         precision highp float;
         uniform vec2 uVertexPosition;
         uniform float uPointSize;
+        uniform vec2 aspect;
         void main(void) {
-            gl_Position = vec4(uVertexPosition * vec2(1.0, 0.5), 0.0, 1.0);
+            gl_Position = vec4(uVertexPosition / aspect, 0.0, 1.0);
             gl_PointSize = uPointSize;
         }
     `;
@@ -352,6 +401,7 @@ function setup() {
             uVertexPosition: ctx.getUniformLocation(shaderProgramPoint, "uVertexPosition"),
             uPointSize: ctx.getUniformLocation(shaderProgramPoint, "uPointSize"),
             uColor: ctx.getUniformLocation(shaderProgramPoint, "uColor"),
+            uAspect: ctx.getUniformLocation(shaderProgramPoint, "aspect"),
         }
     };
 }
@@ -395,11 +445,13 @@ function blit_texture(ctx, stuff, texture) {
 }
 
 function draw_dots(ctx, stuff) {
-    for (const pt of params.plot_points) {
+    for (let i = 0; i < params.plot_points.length; i++) {
+        const pt = params.plot_points[i];
         ctx.useProgram(stuff.shaderProgram);
         ctx.uniform2f(stuff.uVertexPosition, pt[0], pt[1]);
         ctx.uniform1f(stuff.uPointSize, 10.0);
-        ctx.uniform3f(stuff.uColor, 0, 0, 1);
+        ctx.uniform3f(stuff.uColor, i % 2 == 0 ? 0.0 : 1.0, i % 4 < 2 ? 0.0 : 1.0, i % 8 < 4 ? 0.0 : 1.0);
+        ctx.uniform2f(stuff.uAspect, ctx.canvas.width / Math.min(ctx.canvas.width, ctx.canvas.height), ctx.canvas.height / Math.min(ctx.canvas.width, ctx.canvas.height));
         ctx.drawArrays(ctx.POINTS, 0, 1);
     }
 }
@@ -483,8 +535,24 @@ function mousedown() {
             repaint();
         }
     } else {
-        params.mandelbrot = true;
-        repaint();
+        if (event.shiftKey) {
+            orbit(xy);
+            repaint();
+        } else {
+            params.mandelbrot = true;
+            repaint();
+        }
+    }
+}
+
+function orbit(xy) {
+    let z = add(params.z0, mul(xy, params.z0Scale));
+    const c = params.c;
+    const one = [1.0, 0.0];
+    params.plot_points = [];
+    for (let i = 0; i < 20; i++) {
+        params.plot_points.push(div(sub(z, params.z0), params.z0Scale));
+        z = div(add(mul(z,z), c), sub(mul(z,z), one));
     }
 }
 
