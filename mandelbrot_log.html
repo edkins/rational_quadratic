@@ -13,7 +13,7 @@ let params = {
 
     c: [-0.0, 0.0],
     z0: [0.0, 0.0],
-    z0Scale: [2.0, 0.0],
+    z0Scale: [4.0, 0.0],
     mandelbrot: true,
 
     color: true,
@@ -101,28 +101,49 @@ function fragmentShaderSource(max_iter, max_period) {
             return d0 < d1 ? c0 : c1;
         }
 
+        float closest_angle(float c0, float c1, float target) {
+            float d0 = angle_distance(c0, target);
+            float d1 = angle_distance(c1, target);
+            return d0 < d1 ? c0 : c1;
+        }
+
+        float atan2(vec2 z) {
+            return atan(z.y, z.x);
+        }
+
+        vec2 cexp(vec2 z) {
+            return exp(z.x) * vec2(cos(z.y), sin(z.y));
+        }
+
+        vec2 clog(vec2 z) {
+            return vec2(log(length(z)), atan(z.y, z.x));
+        }
+
         vec4 mandelbrot(vec2 actual_z0) {
-            vec2 z = actual_z0;
+            vec2 z = clog(actual_z0);
+            vec2 lc = clog(c);
             int escaped = -1;
-            float theta_add = uFracNum;
             float fiter = 0.0;
+            float fpow = 1.0;
             for (int iteration = 0; iteration < ${max_iter}; iteration++) {
                 fiter = float(iteration);
-                if (length(z) > uBailout) {
+                fpow *= 2.0;
+                if (z.x > 8.0) {
                     escaped = iteration;
                     break;
                 }
-                z = mul(z, z) + c;
-                theta_add = mod(theta_add * 2.0, uFracDenom);
+                // z = z + clog(cexp(z)) + clog(one + mul(c, cexp(-2.0 * z)));
+                z += clog(cexp(z) + cexp(lc-z));
+                // z = z + z + clog(one + mul(c, cexp(-2.0 * z)));
+                // z.y = mod(z.y, 6.283);
             }
 
-            if (escaped != -1) {
-                float theta = atan(z.y, z.x) / 6.28318530718;
-                theta += theta_add / uFracDenom;
-                theta = mod(theta, 1.0);
-                return vec4(theta, theta, theta, 1.0);
+            float blue = 0.0;
+            if (escaped == -1) {
+                return vec4(0.0, 0.0, 0.5, 1.0);
             }
-            return vec4(0.0, 0.0, 0.0, 1.0);
+            float color = 0.5 + z.y / 6.283;
+            return vec4(color, color, color, 1.0);
         }
 
         void main(void) {

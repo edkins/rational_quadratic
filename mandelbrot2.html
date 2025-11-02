@@ -101,26 +101,34 @@ function fragmentShaderSource(max_iter, max_period) {
             return d0 < d1 ? c0 : c1;
         }
 
+        float closest_angle(float c0, float c1, float target) {
+            float d0 = angle_distance(c0, target);
+            float d1 = angle_distance(c1, target);
+            return d0 < d1 ? c0 : c1;
+        }
+
         vec4 mandelbrot(vec2 actual_z0) {
             vec2 z = actual_z0;
             int escaped = -1;
-            float theta_add = uFracNum;
             float fiter = 0.0;
+            float theta2 = 0.0;
+            // vec2 fix = 0.5 * (one + csqrt(one - 4.0 * c));
+            vec2 fix = vec2(0.0, 0.0);
             for (int iteration = 0; iteration < ${max_iter}; iteration++) {
                 fiter = float(iteration);
                 if (length(z) > uBailout) {
                     escaped = iteration;
                     break;
                 }
+                vec2 offset = z - fix;
+                theta2 += atan(offset.y, offset.x);
                 z = mul(z, z) + c;
-                theta_add = mod(theta_add * 2.0, uFracDenom);
             }
 
             if (escaped != -1) {
-                float theta = atan(z.y, z.x) / 6.28318530718;
-                theta += theta_add / uFracDenom;
-                theta = mod(theta, 1.0);
-                return vec4(theta, theta, theta, 1.0);
+                float theta = atan((z - fix).y, (z - fix).x) - theta2;
+                float col = mod(theta / 6.28, 1.0);
+                return vec4(col, col, col, 1.0);
             }
             return vec4(0.0, 0.0, 0.0, 1.0);
         }
