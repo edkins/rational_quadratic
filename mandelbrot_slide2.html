@@ -8,7 +8,7 @@
 "use strict";
 
 let params = {
-    ccenter: [0.25, 0.0],
+    ccenter: [-0.5, 0.0],
     cscale: [1.5, 0.0],
 
     c: [-0.0, 0.0],
@@ -464,7 +464,7 @@ function draw_dots(ctx, stuff) {
     ctx.uniform1f(stuff.uPointSize, 2.0);
     ctx.uniform2f(stuff.uAspect, ctx.canvas.width / Math.min(ctx.canvas.width, ctx.canvas.height), ctx.canvas.height / Math.min(ctx.canvas.width, ctx.canvas.height));
 
-    for (let i = 0; i < params.plot_points.length; i++) {
+    for (let i = params.plot_points.length-1; i >= 0; i--) {
         const pt = params.plot_points[i];
         const col = params.plot_colors[i];
         ctx.uniform2f(stuff.uVertexPosition, pt[0], pt[1]);
@@ -1009,22 +1009,23 @@ function scale_mandelbrot_dots() {
     }
 }
 
+const palette = [
+    [1,0,0],
+    [0,1,0],
+    [1,1,0],
+    [0,0,1],
+    [1,0,1],
+    [0,1,1],
+    [1,0.5,0],
+    [0.7,0.5,1]
+]
+
 function gen_mandelbrot_dots() {
     let theta = 0;
-    const palette = [
-        [0,0,0],
-        [1,0,0],
-        [0,1,0],
-        [1,1,0],
-        [0,0,1],
-        [1,0,1],
-        [0,1,1],
-        [1,0.5,0],
-    ]
     params.unscaled_points = [];
     let done = [];
     for (let j = 0; j < 8; j++) {
-        let denom = Math.pow(2, j) - 1;
+        let denom = Math.pow(2, j + 1) - 1;
         for (let num = 0; num < denom; num++) {
             if (done.indexOf(num / denom) !== -1) {
                 continue;
@@ -1052,11 +1053,65 @@ function gen_mandelbrot_dots() {
     scale_mandelbrot_dots();
 }
 
+function gen_svg() {
+    let points = [
+        {num:0, denom:1, j:0},
+        {num:1, denom:1, j:0},
+    ];
+    // created sorted array of values
+    for (let j = 1; j < 8; j++) {
+        let denom = Math.pow(2, j+1) - 1;
+        for (let num = 0; num < denom; num++) {
+            let found = false;
+            for (let i = 0; i < points.length; i++) {
+                if (points[i].num * denom === num * points[i].denom) {
+                    // they're the same
+                    found = true;
+                }
+            }
+            if (!found) {
+                points.push({num, denom, j});
+            }
+        }
+    }
+    points.sort((a,b) => b.num * a.denom - a.num * b.denom);
+
+    svg.innerHTML = "";
+    const size = 400;
+
+    let stack = [];
+    for (let i = 0; i < points.length; i++) {
+        stack.push(points[i]);
+        if (stack.length >= 2 && stack[stack.length-1].j === stack[stack.length-2].j) {
+            const p0 = stack.pop();
+            const p1 = stack.pop();
+            const j = p1.j;
+            
+            const theta0 = p0.num/p0.denom * 6.28318530718;
+            const theta1 = p1.num/p1.denom * 6.28318530718;
+
+            const x0 = size * (1 + Math.cos(theta0));
+            const y0 = size * (1 + Math.sin(theta0));
+            const x1 = size * (1 + Math.cos(theta1));
+            const y1 = size * (1 + Math.sin(theta1));
+            const r = Math.pow(Math.hypot(x1 - x0, y1 - y0)/size, 1.2) * size;
+            const arc = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            arc.setAttribute("d", `M ${x0} ${y0} A ${r} ${r} ${(theta0+theta1)/2} 0 0 ${x1} ${y1}`);
+            arc.setAttribute("fill", "transparent");
+            arc.setAttribute("stroke-width", "2px");
+            arc.setAttribute("stroke", `rgb(${255*palette[j][0]},${255*palette[j][1]},${255*palette[j][2]})`);
+
+            svg.appendChild(arc);
+        }
+    }
+}
+
 function start() {
     glStuff = setup();
     update_buttons();
     gen_mandelbrot_dots();
     paint();
+    gen_svg();
 }
 
 window.onload = start;
@@ -1074,6 +1129,7 @@ button.active {
     <button id="button_zoom" onclick="params.drag='zoom'; update_buttons()">Zoom</button>
     <button id="button_distort" onclick="params.drag='distort'; update_buttons()">Distort</button>
     <br>
-    <canvas id="canvas" width="1600" height="800" onmousedown="mousedown()" onmousemove="mousemove()" onwheel="mousewheel()" ontouchstart="touchstart()" ontouchmove="touchmove()" ontouchend="touchend()"></canvas>
+    <canvas id="canvas" width="1000" height="800" onmousedown="mousedown()" onmousemove="mousemove()" onwheel="mousewheel()" ontouchstart="touchstart()" ontouchmove="touchmove()" ontouchend="touchend()"></canvas>
+    <svg id="svg" style="background:#222" width="800" height="800"></svg>
 </body>
 </html>
