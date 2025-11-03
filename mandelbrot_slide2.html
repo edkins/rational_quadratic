@@ -1024,7 +1024,7 @@ function gen_mandelbrot_dots() {
     let theta = 0;
     params.unscaled_points = [];
     let done = [];
-    for (let j = 0; j < 8; j++) {
+    for (let j = 0; j < 7; j++) {
         let denom = Math.pow(2, j + 1) - 1;
         for (let num = 0; num < denom; num++) {
             if (done.indexOf(num / denom) !== -1) {
@@ -1053,10 +1053,155 @@ function gen_mandelbrot_dots() {
     scale_mandelbrot_dots();
 }
 
-function gen_svg() {
+class Circle {
+    constructor(cx, cy, cr, ranges, j, points) {
+        this.cx = cx;
+        this.cy = cy;
+        this.cr = cr;
+        this.ranges = ranges;
+        this.j = j;
+        this.points = points;
+    }
+
+    includes(p) {
+        for (let i = 0; i < this.ranges.length; i++) {
+            if (this.ranges[i][0] < p && this.ranges[i][1] > p) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    theta(p) {
+        for (let i = 0; i < this.ranges.length; i++) {
+            if (this.ranges[i][0] < p && this.ranges[i][1] > p) {
+                return (p - this.ranges[i][0]) / (this.ranges[i][1] - this.ranges[i][0]) * (this.ranges[i][3] - this.ranges[i][2]) + this.ranges[i][2];
+            }
+        }
+    }
+
+    exclude_range(e0, e1) {
+        let old_ranges = this.ranges.slice();
+        this.ranges = [];
+        for (let i = 0; i < old_ranges.length; i++) {
+            const old_range = old_ranges[i];
+            if (e1 <= old_range[0] || e0 >= old_range[1]) {
+                // doesn't overlap
+                this.ranges.push(old_range);
+            } else if (e0 > old_range[0] && e1 < old_range[1]) {
+                // splits into two
+                this.ranges.push(
+                    [old_range[0], e0],
+                    [e1, old_range[1]],
+                );
+            }
+        }
+    }
+
+    exclude_ranges(exclusions) {
+        this.ranges.slice();
+        this.ranges = [];
+        for (let i = 0; i < old_ranges.length; i++) {
+            const start = old_ranges[i][0];
+            const end = old_ranges[i][1];
+            for (let j = 0; j < exclusions.length; j++) {
+                if (exclusions[j][0] >= end) {
+                    break;
+                }
+                if (exclusions[j][1] <= start) {
+                    continue;
+                }
+            }
+        }
+    }
+
+    split(j) {
+        if (this.points.length % 2 !== 0) {
+            throw "Not an even number of points!";
+        }
+        if (this.points.length === 0) {
+            return [];
+        }
+        let result = [];
+        let dx = 0;
+        let dy = 0;
+        let remaining_ratio = 1;
+        let exclusions = [];
+        for (let i = 0; i < this.points.length; i += 2) {
+            const theta0 = this.theta(this.points[i]);
+            const theta1 = this.theta(this.points[i+1]);
+            const splitx = Math.cos((theta0+theta1)/2*6.28318530718);
+            const splity = Math.sin((theta0+theta1)/2*6.28318530718);
+            const ratio = theta1 - theta0;
+            const new_circle = new Circle(
+                this.cx + this.cr * splitx * (1-ratio),
+                this.cy + this.cr * splity * (1-ratio),
+                this.cr * ratio,
+                [this.points0, this.points1, 0, 1],
+                j,
+                []
+            );
+            dx -= this.cr * splitx * ratio;
+            dy -= this.cr * splity * ratio;
+            remaining_ratio -= ratio;
+            exclusions.push([this.points[i], this.points[i+1]]);
+            result.push(new_circle);
+        }
+        this.cx += dx;
+        this.cy += dy;
+        this.cr *= remaining_ratio;
+        this.points = [];
+        this.exclude_ranges(exclusions);
+        return result;
+    }
+}
+
+function gen_svg2() {
+    let circles = [new Circle(0, 0, 1, [[0,1,0,1]], 0, [])];
+    let seen = [0,1];
+    for (let j = 1; j < 3; j++) {
+        let denom = Math.pow(2, j+1) - 1;
+        for (let num = 0; num < denom; num++) {
+            let value = num/denom;
+            if (seen.indexOf(value) !== -1) {
+                continue;
+            }
+            seen.push(value);
+            for (let i = 0; i < circles.length; i++) {
+                if (circles[i].includes(value)) {
+                    circles[i].points.push(value);
+                    break;
+                }
+            }
+        }
+
+        let new_circles = [];
+        for (let i = 0; i < circles.length; i++) {
+            new_circles.push(...circles[i].split(j));
+        }
+        console.log(new_circles);
+        circles.push(...new_circles);
+    }
+    const svg = document.getElementById("svg2");
+    svg.innerHTML = "";
+    const size = 400;
+    for (let i = 0; i < circles.length; i++) {
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        const c = circles[i];
+        circle.setAttribute("cx", size * (1 + c.cx));
+        circle.setAttribute("cy", size * (1 + c.cy));
+        circle.setAttribute("r", size * c.cr);
+        circle.setAttribute("fill", "transparent");
+        circle.setAttribute("stroke-width", "2px");
+        circle.setAttribute("stroke", `rgb(${255*palette[c.j][0]},${255*palette[c.j][1]},${255*palette[c.j][2]})`);
+        svg.appendChild(circle);
+    }
+}
+
+function gen_svg2b() {
     let points = [
-        {num:0, denom:1, j:0},
-        {num:1, denom:1, j:0},
+        {num:0, denom:1, j:0, cx: 0, cy: 0, cr: 1, theta: 0},
+        {num:1, denom:1, j:0, cx: 0, cy: 0, cr: 1, theta: 0},
     ];
     // created sorted array of values
     for (let j = 1; j < 8; j++) {
@@ -1070,12 +1215,31 @@ function gen_svg() {
                 }
             }
             if (!found) {
-                points.push({num, denom, j});
+                let theta = num/denom;
+                let cx, cy, cr;
+                if (3 * num < denom || 3 * num > 2 * denom) {
+                    // cardioid
+                    cx = 0.33;
+                    cy = 0;
+                    cr = 0.67;
+                    if (3 * num < denom) {
+                        theta = theta * 1.5;
+                    } else {
+                        theta = theta * 1.5 - 1.5;
+                    }
+                } else {
+                    cx = -0.67;
+                    cy = 0;
+                    cr = 0.33;
+                    theta = (theta - 1/3) * 3;
+                }
+                points.push({num, denom, j, cx,cy,cr,theta});
             }
         }
     }
     points.sort((a,b) => b.num * a.denom - a.num * b.denom);
 
+    const svg = document.getElementById("svg2");
     svg.innerHTML = "";
     const size = 400;
 
@@ -1087,16 +1251,64 @@ function gen_svg() {
             const p1 = stack.pop();
             const j = p1.j;
             
-            const theta0 = p0.num/p0.denom * 6.28318530718;
-            const theta1 = p1.num/p1.denom * 6.28318530718;
-
-            const x0 = size * (1 + Math.cos(theta0));
-            const y0 = size * (1 + Math.sin(theta0));
-            const x1 = size * (1 + Math.cos(theta1));
-            const y1 = size * (1 + Math.sin(theta1));
+            const x0 = size * (1 + p0.cx + p0.cr * Math.cos(p0.theta*6.28318530718));
+            const y0 = size * (1 + p0.cy + p0.cr * Math.sin(p0.theta*6.28318530718));
+            const x1 = size * (1 + p1.cx + p1.cr * Math.cos(p1.theta*6.28318530718));
+            const y1 = size * (1 + p1.cy + p1.cr * Math.sin(p1.theta*6.28318530718));
             const r = Math.pow(Math.hypot(x1 - x0, y1 - y0)/size, 1.2) * size;
             const arc = document.createElementNS("http://www.w3.org/2000/svg", "path");
-            arc.setAttribute("d", `M ${x0} ${y0} A ${r} ${r} ${(theta0+theta1)/2} 0 0 ${x1} ${y1}`);
+            arc.setAttribute("d", `M ${x0} ${y0} A ${r} ${r} ${(p0.theta+p1.theta)*6.28318530718/2} 0 0 ${x1} ${y1}`);
+            arc.setAttribute("fill", "transparent");
+            arc.setAttribute("stroke-width", "2px");
+            arc.setAttribute("stroke", `rgb(${255*palette[j][0]},${255*palette[j][1]},${255*palette[j][2]})`);
+
+            svg.appendChild(arc);
+        }
+    }
+}
+
+function gen_svg() {
+    let points = [
+        {num:0, denom:1, j:0, cx: 0, cy: 0, cr: 1, theta: 0},
+        {num:1, denom:1, j:0, cx: 0, cy: 0, cr: 1, theta: 0},
+    ];
+    // created sorted array of values
+    for (let j = 1; j < 8; j++) {
+        let denom = Math.pow(2, j+1) - 1;
+        for (let num = 0; num < denom; num++) {
+            let found = false;
+            for (let i = 0; i < points.length; i++) {
+                if (points[i].num * denom === num * points[i].denom) {
+                    // they're the same
+                    found = true;
+                }
+            }
+            if (!found) {
+                points.push({num, denom, j, cx:0,cy:0,cr:1,theta: num/denom*6.28318530718});
+            }
+        }
+    }
+    points.sort((a,b) => b.num * a.denom - a.num * b.denom);
+
+    const svg = document.getElementById("svg");
+    svg.innerHTML = "";
+    const size = 400;
+
+    let stack = [];
+    for (let i = 0; i < points.length; i++) {
+        stack.push(points[i]);
+        if (stack.length >= 2 && stack[stack.length-1].j === stack[stack.length-2].j) {
+            const p0 = stack.pop();
+            const p1 = stack.pop();
+            const j = p1.j;
+            
+            const x0 = size * (1 + p0.cx + p0.cr * Math.cos(p0.theta));
+            const y0 = size * (1 + p0.cy + p0.cr * Math.sin(p0.theta));
+            const x1 = size * (1 + p1.cx + p1.cr * Math.cos(p1.theta));
+            const y1 = size * (1 + p1.cy + p1.cr * Math.sin(p1.theta));
+            const r = Math.pow(Math.hypot(x1 - x0, y1 - y0)/size, 1.2) * size;
+            const arc = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            arc.setAttribute("d", `M ${x0} ${y0} A ${r} ${r} ${(p0.theta+p1.theta)/2} 0 0 ${x1} ${y1}`);
             arc.setAttribute("fill", "transparent");
             arc.setAttribute("stroke-width", "2px");
             arc.setAttribute("stroke", `rgb(${255*palette[j][0]},${255*palette[j][1]},${255*palette[j][2]})`);
@@ -1112,6 +1324,7 @@ function start() {
     gen_mandelbrot_dots();
     paint();
     gen_svg();
+    gen_svg2();
 }
 
 window.onload = start;
@@ -1131,5 +1344,6 @@ button.active {
     <br>
     <canvas id="canvas" width="1000" height="800" onmousedown="mousedown()" onmousemove="mousemove()" onwheel="mousewheel()" ontouchstart="touchstart()" ontouchmove="touchmove()" ontouchend="touchend()"></canvas>
     <svg id="svg" style="background:#222" width="800" height="800"></svg>
+    <svg id="svg2" style="background:#222" width="800" height="800"></svg>
 </body>
 </html>
