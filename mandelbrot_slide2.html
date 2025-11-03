@@ -1053,155 +1053,65 @@ function gen_mandelbrot_dots() {
     scale_mandelbrot_dots();
 }
 
-class Circle {
-    constructor(cx, cy, cr, ranges, j, points) {
-        this.cx = cx;
-        this.cy = cy;
-        this.cr = cr;
-        this.ranges = ranges;
+class Bobble {
+    constructor(j, theta0) {
+        this.children = [];
         this.j = j;
-        this.points = points;
+        this.theta0 = theta0;
+        this.theta1 = null;
     }
 
-    includes(p) {
-        for (let i = 0; i < this.ranges.length; i++) {
-            if (this.ranges[i][0] < p && this.ranges[i][1] > p) {
-                return true;
-            }
+    ratio() {
+        let result = (this.theta1 - this.theta0);
+        for (let i = 0; i < this.children.length; i++) {
+            result -= (this.children[i].theta1 - this.children[i].theta0);
         }
-        return false;
-    }
-
-    theta(p) {
-        for (let i = 0; i < this.ranges.length; i++) {
-            if (this.ranges[i][0] < p && this.ranges[i][1] > p) {
-                return (p - this.ranges[i][0]) / (this.ranges[i][1] - this.ranges[i][0]) * (this.ranges[i][3] - this.ranges[i][2]) + this.ranges[i][2];
-            }
+        if (result < 0) {
+            throw "Bad2";
         }
-    }
-
-    exclude_range(e0, e1) {
-        let old_ranges = this.ranges.slice();
-        this.ranges = [];
-        for (let i = 0; i < old_ranges.length; i++) {
-            const old_range = old_ranges[i];
-            if (e1 <= old_range[0] || e0 >= old_range[1]) {
-                // doesn't overlap
-                this.ranges.push(old_range);
-            } else if (e0 > old_range[0] && e1 < old_range[1]) {
-                // splits into two
-                this.ranges.push(
-                    [old_range[0], e0],
-                    [e1, old_range[1]],
-                );
-            }
+        if (result === 0) {
+            throw "Bad3";
         }
-    }
-
-    exclude_ranges(exclusions) {
-        this.ranges.slice();
-        this.ranges = [];
-        for (let i = 0; i < old_ranges.length; i++) {
-            const start = old_ranges[i][0];
-            const end = old_ranges[i][1];
-            for (let j = 0; j < exclusions.length; j++) {
-                if (exclusions[j][0] >= end) {
-                    break;
-                }
-                if (exclusions[j][1] <= start) {
-                    continue;
-                }
-            }
-        }
-    }
-
-    split(j) {
-        if (this.points.length % 2 !== 0) {
-            throw "Not an even number of points!";
-        }
-        if (this.points.length === 0) {
-            return [];
-        }
-        let result = [];
-        let dx = 0;
-        let dy = 0;
-        let remaining_ratio = 1;
-        let exclusions = [];
-        for (let i = 0; i < this.points.length; i += 2) {
-            const theta0 = this.theta(this.points[i]);
-            const theta1 = this.theta(this.points[i+1]);
-            const splitx = Math.cos((theta0+theta1)/2*6.28318530718);
-            const splity = Math.sin((theta0+theta1)/2*6.28318530718);
-            const ratio = theta1 - theta0;
-            const new_circle = new Circle(
-                this.cx + this.cr * splitx * (1-ratio),
-                this.cy + this.cr * splity * (1-ratio),
-                this.cr * ratio,
-                [this.points0, this.points1, 0, 1],
-                j,
-                []
-            );
-            dx -= this.cr * splitx * ratio;
-            dy -= this.cr * splity * ratio;
-            remaining_ratio -= ratio;
-            exclusions.push([this.points[i], this.points[i+1]]);
-            result.push(new_circle);
-        }
-        this.cx += dx;
-        this.cy += dy;
-        this.cr *= remaining_ratio;
-        this.points = [];
-        this.exclude_ranges(exclusions);
         return result;
+    }
+
+    draw(svg, cx, cy, r, theta, size) {
+        r = Math.pow(this.ratio() / 6.28318530718, 2) * size;
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("cx", cx);
+        circle.setAttribute("cy", cy);
+        circle.setAttribute("r", r);
+        circle.setAttribute("fill", "transparent");
+        circle.setAttribute("stroke-width", "2px");
+        circle.setAttribute("stroke", `rgb(${255*palette[this.j][0]},${255*palette[this.j][1]},${255*palette[this.j][2]})`);
+        svg.appendChild(circle);
+
+
+        if (r < 0) {
+            throw "bad";
+        }
+
+        const n = this.children.length;
+        for (let i = 0; i < n; i++) {
+            const theta1 = theta + (i+.5) / n * 6.28318530718;
+            const r1 = size * Math.pow(this.children[i].ratio() / 6.28318530718, 2);
+            const r0 = r + r1;
+            this.children[i].draw(
+                svg,
+                cx + r0 * Math.cos(theta1),
+                cy + r0 * Math.sin(theta1),
+                r1,
+                theta1 + 3.14159265,
+                size
+            );
+        }
     }
 }
 
 function gen_svg2() {
-    let circles = [new Circle(0, 0, 1, [[0,1,0,1]], 0, [])];
-    let seen = [0,1];
-    for (let j = 1; j < 3; j++) {
-        let denom = Math.pow(2, j+1) - 1;
-        for (let num = 0; num < denom; num++) {
-            let value = num/denom;
-            if (seen.indexOf(value) !== -1) {
-                continue;
-            }
-            seen.push(value);
-            for (let i = 0; i < circles.length; i++) {
-                if (circles[i].includes(value)) {
-                    circles[i].points.push(value);
-                    break;
-                }
-            }
-        }
-
-        let new_circles = [];
-        for (let i = 0; i < circles.length; i++) {
-            new_circles.push(...circles[i].split(j));
-        }
-        console.log(new_circles);
-        circles.push(...new_circles);
-    }
-    const svg = document.getElementById("svg2");
-    svg.innerHTML = "";
-    const size = 400;
-    for (let i = 0; i < circles.length; i++) {
-        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-        const c = circles[i];
-        circle.setAttribute("cx", size * (1 + c.cx));
-        circle.setAttribute("cy", size * (1 + c.cy));
-        circle.setAttribute("r", size * c.cr);
-        circle.setAttribute("fill", "transparent");
-        circle.setAttribute("stroke-width", "2px");
-        circle.setAttribute("stroke", `rgb(${255*palette[c.j][0]},${255*palette[c.j][1]},${255*palette[c.j][2]})`);
-        svg.appendChild(circle);
-    }
-}
-
-function gen_svg2b() {
     let points = [
-        {num:0, denom:1, j:0, cx: 0, cy: 0, cr: 1, theta: 0},
-        {num:1, denom:1, j:0, cx: 0, cy: 0, cr: 1, theta: 0},
+        {num:0, denom:1, j:0, theta: 0},
+        {num:1, denom:1, j:0, theta: 6.28318530718},
     ];
     // created sorted array of values
     for (let j = 1; j < 8; j++) {
@@ -1215,29 +1125,11 @@ function gen_svg2b() {
                 }
             }
             if (!found) {
-                let theta = num/denom;
-                let cx, cy, cr;
-                if (3 * num < denom || 3 * num > 2 * denom) {
-                    // cardioid
-                    cx = 0.33;
-                    cy = 0;
-                    cr = 0.67;
-                    if (3 * num < denom) {
-                        theta = theta * 1.5;
-                    } else {
-                        theta = theta * 1.5 - 1.5;
-                    }
-                } else {
-                    cx = -0.67;
-                    cy = 0;
-                    cr = 0.33;
-                    theta = (theta - 1/3) * 3;
-                }
-                points.push({num, denom, j, cx,cy,cr,theta});
+                points.push({num, denom, j, theta: num/denom*6.28318530718});
             }
         }
     }
-    points.sort((a,b) => b.num * a.denom - a.num * b.denom);
+    points.sort((a,b) => a.num * b.denom - b.num * a.denom);
 
     const svg = document.getElementById("svg2");
     svg.innerHTML = "";
@@ -1245,26 +1137,24 @@ function gen_svg2b() {
 
     let stack = [];
     for (let i = 0; i < points.length; i++) {
-        stack.push(points[i]);
-        if (stack.length >= 2 && stack[stack.length-1].j === stack[stack.length-2].j) {
-            const p0 = stack.pop();
-            const p1 = stack.pop();
-            const j = p1.j;
-            
-            const x0 = size * (1 + p0.cx + p0.cr * Math.cos(p0.theta*6.28318530718));
-            const y0 = size * (1 + p0.cy + p0.cr * Math.sin(p0.theta*6.28318530718));
-            const x1 = size * (1 + p1.cx + p1.cr * Math.cos(p1.theta*6.28318530718));
-            const y1 = size * (1 + p1.cy + p1.cr * Math.sin(p1.theta*6.28318530718));
-            const r = Math.pow(Math.hypot(x1 - x0, y1 - y0)/size, 1.2) * size;
-            const arc = document.createElementNS("http://www.w3.org/2000/svg", "path");
-            arc.setAttribute("d", `M ${x0} ${y0} A ${r} ${r} ${(p0.theta+p1.theta)*6.28318530718/2} 0 0 ${x1} ${y1}`);
-            arc.setAttribute("fill", "transparent");
-            arc.setAttribute("stroke-width", "2px");
-            arc.setAttribute("stroke", `rgb(${255*palette[j][0]},${255*palette[j][1]},${255*palette[j][2]})`);
-
-            svg.appendChild(arc);
+        if (stack.length >= 1 && stack[stack.length-1].j === points[i].j) {
+            stack[stack.length-1].theta1 = points[i].theta;
+            if (stack[stack.length-1].theta1 === stack[stack.length-1].theta0) {
+                throw `Bad: ${i} ${points[i].j}`;
+            }
+            if (stack.length >= 2) {
+                const b = stack.pop();
+                stack[stack.length-1].children.push(b);
+            }
+        } else {
+            stack.push(new Bobble(points[i].j, points[i].theta));
         }
     }
+    
+    if (stack.length !== 1) {
+        throw "Wrong stack length";
+    }
+    stack[0].draw(svg, size*1.5, size, size/4, 0, size * 500);
 }
 
 function gen_svg() {
