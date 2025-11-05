@@ -1053,13 +1053,68 @@ function gen_mandelbrot_dots() {
     scale_mandelbrot_dots();
 }
 
-function gen_svg2() {
+class Bobble {
+    constructor(j, theta0) {
+        this.children = [];
+        this.j = j;
+        this.theta0 = theta0;
+        this.theta1 = null;
+    }
+
+    ratio() {
+        let result = (this.theta1 - this.theta0);
+        for (let i = 0; i < this.children.length; i++) {
+            result -= (this.children[i].theta1 - this.children[i].theta0);
+        }
+        if (result < 0) {
+            throw "Bad2";
+        }
+        if (result === 0) {
+            throw "Bad3";
+        }
+        return result;
+    }
+
+    draw(svg, cx, cy, r, theta, size) {
+        r = Math.pow(this.ratio() / 6.28318530718, 2) * size;
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("cx", cx);
+        circle.setAttribute("cy", cy);
+        circle.setAttribute("r", r);
+        circle.setAttribute("fill", "transparent");
+        circle.setAttribute("stroke-width", "2px");
+        circle.setAttribute("stroke", `rgb(${255*palette[this.j][0]},${255*palette[this.j][1]},${255*palette[this.j][2]})`);
+        svg.appendChild(circle);
+
+
+        if (r < 0) {
+            throw "bad";
+        }
+
+        const n = this.children.length;
+        for (let i = 0; i < n; i++) {
+            const theta1 = theta + (i+.5) / n * 6.28318530718;
+            const r1 = size * Math.pow(this.children[i].ratio() / 6.28318530718, 2);
+            const r0 = r + r1;
+            this.children[i].draw(
+                svg,
+                cx + r0 * Math.cos(theta1),
+                cy + r0 * Math.sin(theta1),
+                r1,
+                theta1 + 3.14159265,
+                size
+            );
+        }
+    }
+}
+
+function gen_canvas2() {
     let points = [
-        {num:0, denom:1, j:0, x:0.5, y:1},
-        {num:1, denom:1, j:0, x:0.5, y:-1},
+        {num:0, denom:1, j:0},
+        {num:1, denom:1, j:0},
     ];
     // created sorted array of values
-    for (let j = 1; j < 8; j++) {
+    for (let j = 1; j < 4; j++) {
         let denom = Math.pow(2, j+1) - 1;
         for (let num = 0; num < denom; num++) {
             let found = false;
@@ -1070,127 +1125,37 @@ function gen_svg2() {
                 }
             }
             if (!found) {
-                const theta = num / denom * 6.28318530718;
                 points.push({num, denom, j});
             }
         }
     }
-    points.sort((a,b) => a.num * b.denom - b.num * a.denom);
+    points.sort((a,b) => b.num * a.denom - a.num * b.denom);
 
-    let stack = [];
     for (let i = 0; i < points.length; i++) {
-        stack.push(i);
-        if (stack.length >= 2 && points[stack[stack.length-1]].j === points[stack[stack.length-2]].j) {
-            const i0 = stack.pop();
-            const i1 = stack.pop();
-            points[i0].partner = i1;
-            points[i1].partner = i0;
-        }
+        const theta = points[i].num / points[i].denom*6.28318530718;
+        points[i].x = Math.cos(theta);
+        points[i].y = Math.sin(theta);
+        points[i].dx = -Math.cos(theta);
+        points[i].dy = -Math.sin(theta);
     }
 
-    let prevs = {};
-    for (let i = 0; i < points.length; i++) {
-        prevs[points[i].j] = i;
-        if (points[i].j === 0) {
-            continue;
-        }
-        let maximum = -1;
-        for (let j = 0; j < points[i].j; j++) {
-            if (prevs[j] > maximum) {
-                maximum = prevs[j];
-            }
-        }
-        points[i].prev = maximum;
-        if (maximum === -1) {
-            throw `Unexpected ${i}`;
-        }
-    }
-    prevs = undefined;
-
-    let nexts = {};
-    for (let i = points.length-1; i >= 0; i--) {
-        nexts[points[i].j] = i;
-        if (points[i].j === 0) {
-            continue;
-        }
-        let minimum = points.length;
-        for (let j = 0; j < points[i].j; j++) {
-            if (nexts[j] < minimum) {
-                minimum = nexts[j];
-            }
-        }
-        points[i].next = minimum;
-        if (minimum === points.length) {
-            throw `Unexpected ${i}`;
-        }
-    }
-
-    for (let i = 1; i < points.length-1; i++) {
-        const p = points[i];
-        console.log(`${p.num}/${p.denom}: partner=${points[p.partner].num}/${points[p.partner].denom}   prev=${points[p.prev].num}/${points[p.prev].denom}   next=${points[p.next].num}/${points[p.next].denom}`);
-    }
-
-    for (let j = 1; j < 8; j++) {
+    const size = 400;
+    const canvas = document.getElementById("canvas2");
+    const ctx = canvas.getContext("2d");
+    const epsilon = 0.01;
+    ctx.fillStyle = "#222";
+    ctx.fillRect(0,0,2*size,2*size);
+    for (let k = 0; k < 5; k++) {
         for (let i = 0; i < points.length; i++) {
-            if (points[i].j !== j) {
-                continue;
-            }
+            const x = size * (1 + points[i].x);
+            const y = size * (1 + points[i].y);
+            const j = points[i].j;
+            ctx.fillStyle = `rgb(${255*palette[j][0]},${255*palette[j][1]},${255*palette[j][2]})`;
+            ctx.fillRect(x-1,y-1,2,2);
 
-            const p = points[points[i].prev];
-            const pp = points[p.partner];
-            const n = points[points[i].next];
-            const np = points[n.partner];
-
-            const ppinch = Math.pow(0.5, points[i].j - p.j);
-            const npinch = Math.pow(0.5, points[i].j - n.j);
-            const x0 = (p.x + pp.x + ppinch * (p.x - pp.x)) / 2;
-            const y0 = (p.y + pp.y + ppinch * (p.y - pp.y)) / 2;
-            const x1 = (n.x + np.x + npinch * (n.x - np.x)) / 2;
-            const y1 = (n.y + np.y + npinch * (n.y - np.y)) / 2;
-            
-            if (p.partner === points[i].next) {
-                const dist = 0.7;
-                if (points[i].partner > i) {
-                    points[i].x = x0 - dist * (y0 - y1);
-                    points[i].y = y0 + dist * (x0 - x1);
-                } else {
-                    points[i].x = x1 + dist * (y1 - y0);
-                    points[i].y = y1 - dist * (x1 - x0);
-                }
-            } else {
-                const dist = 0.5;
-                const x0b = (x0 * 2 + x1) / 3;
-                const y0b = (y0 * 2 + y1) / 3;
-                const x1b = (x1 * 2 + x0) / 3;
-                const y1b = (y1 * 2 + y0) / 3;
-                if (points[i].partner > i) {
-                    points[i].x = x0b - dist * (y0b - y1b);
-                    points[i].y = y0b + dist * (x0b - x1b);
-                } else {
-                    points[i].x = x1b + dist * (y1b - y0b);
-                    points[i].y = y1b - dist * (x1b - x0b);
-                }
-            }
+            points[i].x += points[i].dx * epsilon;
+            points[i].y += points[i].dy * epsilon;
         }
-    }
-
-    const size = 300;
-    const svg = document.getElementById("svg2");
-    for (let i = 0; i < points.length; i++) {
-        if (points[i].j >= 8) {
-            continue;
-        }
-        if (points[i].partner < i) {
-            continue;
-        }
-        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-        const j = points[i].j;
-        line.setAttribute("x1", 400 + size * points[i].x);
-        line.setAttribute("y1", 400 + size * points[i].y);
-        line.setAttribute("x2", 400 + size * points[points[i].partner].x);
-        line.setAttribute("y2", 400 + size * points[points[i].partner].y);
-        line.setAttribute("stroke", `rgb(${255*palette[j][0]},${255*palette[j][1]},${255*palette[j][2]})`);
-        svg.appendChild(line);
     }
 }
 
@@ -1251,7 +1216,7 @@ function start() {
     gen_mandelbrot_dots();
     paint();
     gen_svg();
-    gen_svg2();
+    gen_canvas2();
 }
 
 window.onload = start;
@@ -1271,6 +1236,6 @@ button.active {
     <br>
     <canvas id="canvas" width="1000" height="800" onmousedown="mousedown()" onmousemove="mousemove()" onwheel="mousewheel()" ontouchstart="touchstart()" ontouchmove="touchmove()" ontouchend="touchend()"></canvas>
     <svg id="svg" style="background:#222" width="800" height="800"></svg>
-    <svg id="svg2" style="background:#222" width="800" height="800"></svg>
+    <canvas id="canvas2" width="800" height="800"></svg>
 </body>
 </html>

@@ -23,7 +23,8 @@ def parity_str(p: np.ndarray) -> str:
     return result
 
 def main():
-    rangemax = 12
+    rangemax = 14
+    float_pairings = []
     for n in range(2,rangemax+1):
         pairings = {}
         denom = to_denom(n)
@@ -49,7 +50,8 @@ def main():
                 print(parity_str(row[:len(row)//2]))
         for a in range(1,denom):
             if not is_reduced(a,n):
-                print(f"{a:3}/{denom}                  not_reduced")
+                if n <= 11:
+                    print(f"{a:3}/{denom}                  not_reduced")
                 continue
             if a not in pairings:
                 for b in range(a+1, denom):
@@ -58,6 +60,8 @@ def main():
                     if np.array_equal(parities[b], parities[a]):
                         pairings[a] = b
                         pairings[b] = a
+                        float_pairings.append((a/denom,b/denom))
+                        float_pairings.append((b/denom,a/denom))
                         break
                 assert a in pairings
             if abs(pairings[a] - a) > 1:
@@ -66,19 +70,15 @@ def main():
                 dif = "   "
             n_eq = parity_eq[a,:].sum()
 
-            print(f"{a:3}/{denom} {parity_str(parities[a])} {pairings[a]:3}    {dif}    {n_eq:3}")
+            if n <= 11:
+                print(f"{a:3}/{denom} {parity_str(parities[a])} {pairings[a]:3}    {dif}    {n_eq:3}")
         print("-------")
 
-        if n == rangemax:
-            im = np.array(full_parity_eq, dtype=np.int8) + 1
-            for a,b in pairings.items():
-                assert im[a,b] == 2
-                im[a,b] = 5
-            for u in unreduced_ixs:
-                im[u,:] = 0
-                im[:,u] = 0
-            plt.imshow(im)
-            plt.show()
+    xs = [x for x,y in float_pairings]
+    ys = [y for x,y in float_pairings]
+    fig, ax = plt.subplots(1, 1, figsize=(12,12))
+    plt.scatter(xs, ys, s=1)
+    plt.show()
 
 if __name__ == "__main__":
     # print(is_reduced(2,2))
