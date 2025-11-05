@@ -8,7 +8,7 @@
 "use strict";
 
 const A = 4;
-const B = 3;
+const B = 7;
 
 let params = {
     ccenter: [-0.5, 0.0],
@@ -91,6 +91,15 @@ function fragmentShaderSource(max_iter, max_period) {
             );
         }
 
+        vec2 other_csqrt(vec2 z) {
+            float r = sqrt(length(z));
+            float theta = atan(-z.y, -z.x);
+            return vec2(
+                -r * sin(theta / 2.0),
+                r * cos(theta / 2.0)
+            );
+        }
+
         float angle_distance(float a, float b) {
             float twopi = 6.28318530718;
             float diff = mod(b - a, twopi);
@@ -132,41 +141,38 @@ function fragmentShaderSource(max_iter, max_period) {
             );
         }
 
+        float nearest(float course, float fine) {
+            return fine + floor(course - fine + 0.5);
+        }
+
         vec4 mandelbrot(vec2 actual_z0) {
             vec2 z = actual_z0;
             int escaped = -1;
             float fiter = 0.0;
-            vec2 keep = actual_z0;
-            for (int iteration = 0; iteration < ${max_iter}; iteration++) {
+            vec2 keep = one;
+            for (int iteration = 1; iteration < ${max_iter}; iteration++) {
                 fiter = float(iteration);
-                if (iteration > ${A} && length(z) > uBailout) {
+                if (iteration > ${Math.max(A,B)} && length(z) > uBailout) {
                     escaped = iteration;
                     break;
                 }
-                if (iteration == ${A}) {
-                    keep = z;
-                }
                 z = mul(z, z) + c;
+                if (iteration >= ${A} && iteration <= ${B}) {
+                    keep = mul(keep, z);
+                }
             }
 
-            keep = div(keep, c);
-            vec2 z2 = keep - one;
-            float theta = atan(z2.y, z2.x) / 6.28318530718;
-            theta = mod(theta, 1.0);
-
-            for (int iteration = 0; iteration < ${B}; iteration++) {
-                keep = mul(mul(keep,keep),c) + one;
+            keep = mul(keep, cpow(c, ${A-B-1}));
+            float theta = mod(atan(keep.y, keep.x) / 6.28318530718, 1.0);
+            if (theta > 0.5) {
+                theta -= 0.1;
             }
-            vec2 z3 = keep - one;
-            float theta3 = atan(z3.y, z3.x) / 6.28318530718;
-            theta3 = mod(theta3, 1.0);
-
-            return vec4(theta, theta3, 0.5, 1.0);
+            return vec4(theta, theta, 0.5, 1.0);
         }
 
         void main(void) {
             if (uMandelbrot) {
-                gl_FragColor = mandelbrot(c);
+                gl_FragColor = mandelbrot(vec2(0.0, 0.0));
             } else {
                 gl_FragColor = mandelbrot(z0);
             }
@@ -1033,8 +1039,8 @@ function gen_mandelbrot_dots() {
     let theta = 0;
     params.unscaled_points = [];
     let done = [];
-    for (let j = 0; j <= A+B; j++) {
-        if (j+1 !== A && j+1 !== A+B) {
+    for (let j = 0; j <= Math.min(Math.max(A,B)+1, palette.length); j++) {
+        if (j+1 < A || j+1 > B) {
             continue;
         }
         let denom = Math.pow(2, j + 1) - 1;
@@ -1262,8 +1268,6 @@ function start() {
     update_buttons();
     gen_mandelbrot_dots();
     paint();
-    gen_svg();
-    gen_svg2();
 }
 
 window.onload = start;
@@ -1281,8 +1285,6 @@ button.active {
     <button id="button_zoom" onclick="params.drag='zoom'; update_buttons()">Zoom</button>
     <button id="button_distort" onclick="params.drag='distort'; update_buttons()">Distort</button>
     <br>
-    <canvas id="canvas" width="1000" height="800" onmousedown="mousedown()" onmousemove="mousemove()" onwheel="mousewheel()" ontouchstart="touchstart()" ontouchmove="touchmove()" ontouchend="touchend()"></canvas>
-    <svg id="svg" style="background:#222" width="800" height="800"></svg>
-    <svg id="svg2" style="background:#222" width="800" height="800"></svg>
+    <canvas id="canvas" width="2000" height="1400" onmousedown="mousedown()" onmousemove="mousemove()" onwheel="mousewheel()" ontouchstart="touchstart()" ontouchmove="touchmove()" ontouchend="touchend()"></canvas>
 </body>
 </html>
