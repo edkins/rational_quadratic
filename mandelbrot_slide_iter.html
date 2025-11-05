@@ -7,8 +7,16 @@
     <script>
 "use strict";
 
-const A = 4;
-const B = 7;
+const A = 0;
+const B = 5;
+
+const uPowersArrays = {
+    1: [0,1],
+    2: [0,0,1],
+    3: [0,-1,1,1],
+    4: [0,0,-1,1,1],
+    5: [0,-1,0,1,1,1],
+}
 
 let params = {
     ccenter: [-0.5, 0.0],
@@ -67,6 +75,7 @@ function fragmentShaderSource(max_iter, max_period) {
         uniform float uBailout;
         uniform float uFracNum;
         uniform float uFracDenom;
+        uniform int uPowers[${B+1}];
         const vec2 one = vec2(1.0, 0.0);
 
         vec2 mul(vec2 x, vec2 y) {
@@ -157,12 +166,11 @@ function fragmentShaderSource(max_iter, max_period) {
                     break;
                 }
                 z = mul(z, z) + c;
-                if (iteration >= ${A} && iteration <= ${B}) {
-                    keep = mul(keep, z);
+                if (iteration <= ${B}) {
+                    keep = mul(keep, cpow(z, uPowers[iteration]));
                 }
             }
 
-            keep = mul(keep, cpow(c, ${A-B-1}));
             float theta = mod(atan(keep.y, keep.x) / 6.28318530718, 1.0);
             if (theta > 0.5) {
                 theta -= 0.1;
@@ -391,6 +399,7 @@ function setup() {
             uAspect: ctx.getUniformLocation(shaderProgram, "aspect"),
             uFracNum: ctx.getUniformLocation(shaderProgram, "uFracNum"),
             uFracDenom: ctx.getUniformLocation(shaderProgram, "uFracDenom"),
+            uPowers: ctx.getUniformLocation(shaderProgram, "uPowers"),
         },
         high: {
             shaderProgram: shaderProgramHigh,
@@ -416,6 +425,7 @@ function setup() {
             uAspect: ctx.getUniformLocation(shaderProgramHigh, "aspect"),
             uFracNum: ctx.getUniformLocation(shaderProgramHigh, "uFracNum"),
             uFracDenom: ctx.getUniformLocation(shaderProgramHigh, "uFracDenom"),
+            uPowers: ctx.getUniformLocation(shaderProgramHigh, "uPowers"),
         },
         blit: {
             shaderProgram: shaderProgramBlit,
@@ -441,6 +451,9 @@ function paintMandelbrot(ctx, stuff, nudgeX, nudgeY) {
     ctx.uniform2f(stuff.uAspect, ctx.canvas.width / Math.min(ctx.canvas.width, ctx.canvas.height), ctx.canvas.height / Math.min(ctx.canvas.width, ctx.canvas.height));
     ctx.uniform1f(stuff.uFracNum, params.frac.num);
     ctx.uniform1f(stuff.uFracDenom, params.frac.denom);
+
+    ctx.uniform1iv(stuff.uPowers, uPowersArrays[B]);
+
     if (params.mandelbrot) {
         ctx.uniform1i(stuff.uMandelbrot, true);
         ctx.uniform2f(stuff.uz0Scale, 0.0, 0.0);
