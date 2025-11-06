@@ -85,6 +85,13 @@ function fragmentShaderSource(max_iter, max_period) {
                 x.x * y.y + x.y * y.x);
         }
 
+        vec2 csquare(vec2 z) {
+            return vec2(
+                z.x * z.x - z.y * z.y,
+                2.0 * z.x * z.y
+            );
+        }
+
         vec2 div(vec2 x, vec2 y) {
             float denom = y.x * y.x + y.y * y.y;
             return vec2(
@@ -186,6 +193,21 @@ function fragmentShaderSource(max_iter, max_period) {
             );
         }
 
+        D dsqrt(D z) {
+            vec2 s = csqrt(z.value);
+            return D(
+                s,
+                0.5 * div(z.dc, s)
+            );
+        }
+
+        D dbar(D z) {
+            return D(
+                vec2(-z.value.x, z.value.y),
+                z.dc
+            );
+        }
+
         vec4 mandelbrot(vec2 actual_z0) {
             D z = D(actual_z0, vec2(0.0, 0.0));
             int escaped = -1;
@@ -201,9 +223,15 @@ function fragmentShaderSource(max_iter, max_period) {
                 }
                 z = dmul(sc, dadd_const(dsquare(z), one));
                 if (iteration >= ${A} && iteration <= ${B}) {
-                    vec2 v = z.value;
-                    if (abs(v.y) < 0.0005 * length(z.dc)) {
-                        color += uPalette[iteration-1]; // * clamp(pow(2.0, fiter) / length(z.dc), 0., 1.);
+                    D zz = dadd_const(dsqrt(z), vec2(0.0, -0.1));
+                    vec2 v = zz.value;
+                    if (abs(v.y) < 0.0005 * length(zz.dc)) {
+                        color += uPalette[iteration-1];
+                    }
+                    D zz2 = dadd_const(dsqrt(dbar(z)), vec2(0.0, -0.1));
+                    vec2 v2 = zz2.value;
+                    if (abs(v2.y) < 0.0005 * length(zz2.dc)) {
+                        color += uPalette[iteration-1];
                     }
                 }
             }
