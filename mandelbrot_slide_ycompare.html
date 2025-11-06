@@ -212,9 +212,12 @@ function fragmentShaderSource(max_iter, max_period) {
             D z = D(actual_z0, vec2(0.0, 0.0));
             int escaped = -1;
             float fiter = 0.0;
-            vec2 keep = one;
             vec3 color = vec3(0.0, 0.0, 0.0);
             D sc = D(other_csqrt(c), one);
+            if (!uMandelbrot) {
+                sc.dc = vec2(0.0,0.0);
+                z.dc = one * 5.0;
+            }
             for (int iteration = 1; iteration < ${B+1}; iteration++) {
                 fiter = float(iteration);
                 if (length(z.value) > uBailout) {
@@ -635,7 +638,11 @@ function mousedown() {
         (-(y - originY - hheight) / hheight) * aspectY
     ];
     if (params.mandelbrot) {
-        if (!event.shiftKey) {
+        if (event.ctrlKey) {
+            params.mandelbrot = false;
+            params.c = add(params.ccenter, mul(xy, params.cscale));
+            repaint();
+        } else if (!event.shiftKey) {
             params.ccenter = add(params.ccenter, mul(xy, params.cscale));
             params.cscale = mul(params.cscale, [0.25, 0.0]);
             scale_mandelbrot_dots();
