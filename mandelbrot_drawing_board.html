@@ -10,8 +10,8 @@
 const showDots = false;
 const showHigh = false;
 
-const MAXIMUM = 5;
-const PMAXIMUM = 5;
+const MAXIMUM = 20;
+const PMAXIMUM = 4;
 
 function make_angles() {
     let result = [];
@@ -172,6 +172,7 @@ function fragmentShaderSource(max_iter, max_period) {
         uniform float uAngles[${angles.length}];
         uniform vec3 uPalette[${angles.length}];
         uniform int j;
+        uniform sampler2D fracTexture;
         const vec2 one = vec2(1.0, 0.0);
         const vec2 zero = vec2(0.0, 0.0);
 
@@ -335,36 +336,38 @@ function fragmentShaderSource(max_iter, max_period) {
             D cc = D(c, one);
             int escaped = ${max_iter};
             float ang_min = 0.0;
-            float ang_max = 1.0;
+            float ang_max = 2.0;
             const int maximum = ${MAXIMUM};
-            float denom = 2.0;
+            float denom = 1.0;
             int yikes = 0;
             float w = 0.0;
             bool highlight = false;
-            float max_yikes = 0.0;
             for (int iteration = 1; iteration < ${max_iter}; iteration++) {
                 z = dadd(dsquare(z), cc);
+                if (iteration <= maximum) {
+                    float candidate = angle(z.value);
+                    float n = find_int_between(ang_min - candidate, ang_max - candidate);
+                    if (n < ang_min - candidate || n > ang_max - candidate) {
+                        return vec4(1.0, 0.0, 0.0, 1.0);
+                    }
+                    float ang_middle = candidate + n;
+                    ang_min = clamp(ang_middle - 0.5, ang_min, ang_max);
+                    ang_max = clamp(ang_middle + 0.5, ang_min, ang_max);
+                    ang_min *= 2.0;
+                    ang_max *= 2.0;
+                    denom *= 0.5;
+                    w = 0.0003 * length(ucscale) * denom / length(z.value) * length(z.dc);
+                }
                 if (length(z.value) > uBailout) {
                     escaped = iteration;
                     break;
-                }
-                if (iteration <= maximum) {
-                    ang_min *= 2.0;
-                    ang_max *= 2.0;
-                    float candidate = angle(z.value);
-                    float ang_middle = candidate + find_int_between(ang_min - candidate, ang_max - candidate);
-                    if (iteration >= 2) {
-                        max_yikes = max(max_yikes, 1.0 - min(ang_middle - ang_min, ang_max - ang_middle));
-                    }
-                    ang_min = ang_middle - 0.5;
-                    ang_max = ang_middle + 0.5;
-                    denom *= 0.5;
-                    w = 0.0003 * length(ucscale) * denom / length(z.value) * length(z.dc);
                 }
             }
             float ang = (ang_min + ang_max) * 0.5;
             ang *= denom;
             ang = mod(ang, 1.0);
+            ang_min = mod(ang_min * denom, 1.0);
+            ang_max = mod(ang_max * denom, 1.0);
 
             float fiter = log(float(escaped)) / 15.0;
             if (escaped == ${max_iter}) {
@@ -374,21 +377,10 @@ function fragmentShaderSource(max_iter, max_period) {
             if (highlight) {
                 color.r += 0.2;
             }
-            if (escaped <= maximum || true) {
-                if (yikes < 0) {
-                    color.r += 0.2;
-                }
-                if (yikes > 0) {
-                    color.g += 0.2;
-                }
-                for (int i = 0; i < ${angles.length}; i++) {
-                    if (abs(ang - uAngles[i]) < w) {
-                        color = uPalette[i];
-                        // if (z.value.y < 0.0) {
-                        //     color *= 0.5;
-                        // }
-                    }
-                }
+            vec4 nearest_tex = texture2D(fracTexture, vec2(0,ang));
+            float nearest_frac = nearest_tex.r / nearest_tex.g;
+            if (nearest_frac >= ang_min && nearest_frac <= ang_max && abs(nearest_frac - ang) > w) {
+                return texture2D(fracTexture, vec2(1,ang));
             }
             return vec4(color, 1.0);
         }
@@ -590,6 +582,41 @@ function setup() {
     ctx.framebufferTexture2D(ctx.FRAMEBUFFER, ctx.COLOR_ATTACHMENT0, ctx.TEXTURE_2D, destTextureHigh, 0);
     ctx.bindFramebuffer(ctx.FRAMEBUFFER, null);
 
+    // Create texture to hold fractions
+    const fracTextureH = 8192;
+    const fraction_texture_data = new Uint8Array(fracTextureH*8);
+    for (let i = 0; i < fracTextureH; i++) {
+        let x = (i + 0.5) / fracTextureH;
+        let nearest_k = 0;
+        for (let k = 0; k < angles.length; k++) {
+            if (Math.abs(x - angles[k]) < Math.abs(x-angles[nearest_k])) {
+                nearest_k = k;
+            }
+        }
+        const denominator = (1 << angles_j[nearest_k]) - 1;
+        const numerator = Math.round(angles[nearest_k] * denominator);
+        if (denominator > 255) {
+            throw "This won't work";
+        }
+        
+        console.log(nearest_k, numerator, denominator);
+        fraction_texture_data[8*i] = numerator;
+        fraction_texture_data[8*i+1] = denominator;
+        const p = palette[angles_j[nearest_k]-1];
+        fraction_texture_data[8*i+4] = p[0] * 255;
+        fraction_texture_data[8*i+5] = p[1] * 255;
+        fraction_texture_data[8*i+6] = p[2] * 255;
+        fraction_texture_data[8*i+7] = 255;
+    }
+    const fracTexture = ctx.createTexture();
+    ctx.bindTexture(ctx.TEXTURE_2D, fracTexture);
+    ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGBA, 2, fracTextureH, 0, ctx.RGBA, ctx.UNSIGNED_BYTE, fraction_texture_data);  
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MIN_FILTER, ctx.NEAREST);
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MAG_FILTER, ctx.NEAREST);
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_S, ctx.CLAMP_TO_EDGE);
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_T, ctx.CLAMP_TO_EDGE);
+    ctx.bindTexture(ctx.TEXTURE_2D, null);
+
     return {
         main: {
             shaderProgram,
@@ -602,7 +629,7 @@ function setup() {
             uBailout: ctx.getUniformLocation(shaderProgram, "uBailout"),
             uBailin: ctx.getUniformLocation(shaderProgram, "uBailin"),
             bailin: 0.002,
-            bailout: 1000,
+            bailout: 100,
             uNudge: ctx.getUniformLocation(shaderProgram, "uNudge"),
             vertexBuffer,
             destTexture,
@@ -619,6 +646,8 @@ function setup() {
             uAngles: ctx.getUniformLocation(shaderProgram, "uAngles"),
             uj: ctx.getUniformLocation(shaderProgram, "j"),
             uContour: ctx.getUniformLocation(shaderProgram, "uContour"),
+            uFracTexture: ctx.getUniformLocation(shaderProgram, "fracTexture"),
+            fracTexture,
         },
         high: {
             shaderProgram: shaderProgramHigh,
@@ -632,7 +661,7 @@ function setup() {
             uBailout: ctx.getUniformLocation(shaderProgramHigh, "uBailout"),
             uBailin: ctx.getUniformLocation(shaderProgramHigh, "uBailin"),
             bailin: 0.001,
-            bailout: 1000,
+            bailout: 100,
             uNudge: ctx.getUniformLocation(shaderProgramHigh, "uNudge"),
             vertexBuffer,
             destTexture: destTextureHigh,
@@ -649,6 +678,8 @@ function setup() {
             uAngles: ctx.getUniformLocation(shaderProgramHigh, "uAngles"),
             uj: ctx.getUniformLocation(shaderProgramHigh, "j"),
             uContour: ctx.getUniformLocation(shaderProgramHigh, "uContour"),
+            uFracTexture: ctx.getUniformLocation(shaderProgramHigh, "fracTexture"),
+            fracTexture,
         },
         blit: {
             shaderProgram: shaderProgramBlit,
@@ -684,6 +715,9 @@ function paintMandelbrot(ctx, stuff, nudgeX, nudgeY) {
     ctx.uniform1fv(stuff.uAngles, angles);
     ctx.uniform1i(stuff.uj, params.j);
     ctx.uniform2f(stuff.uContour, params.contour[0], params.contour[1]);
+    ctx.activeTexture(ctx.TEXTURE0);
+    ctx.bindTexture(ctx.TEXTURE_2D, stuff.fracTexture);
+    ctx.uniform1i(stuff.uFracTexture, 0);
 
     if (params.mandelbrot) {
         ctx.uniform1i(stuff.uMandelbrot, true);
@@ -701,6 +735,7 @@ function paintMandelbrot(ctx, stuff, nudgeX, nudgeY) {
     ctx.enableVertexAttribArray(stuff.aVertexPosition);
     ctx.vertexAttribPointer(stuff.aVertexPosition, 2, ctx.FLOAT, false, 0, 0);
     ctx.drawArrays(ctx.TRIANGLE_STRIP, 0, 4);
+    ctx.bindTexture(ctx.TEXTURE_2D, null);
 }
 
 function blit_texture(ctx, stuff, texture) {
