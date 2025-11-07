@@ -8,6 +8,7 @@
 "use strict";
 
 const showDots = false;
+const showHigh = false;
 
 const uPowersArrays = {
     1: [0,1],
@@ -23,7 +24,7 @@ let params = {
 
     c: [-0.0, 0.0],
     z0: [0.0, 0.0],
-    z0Scale: [1.0, 0.0],
+    z0Scale: [2.0, 0.0],
     mandelbrot: true,
 
     color: true,
@@ -256,6 +257,9 @@ function fragmentShaderSource(max_iter, max_period) {
             if (escaped > j && abs(z0.value.y) < length(z0.dc) * 0.003) {
                 color = vec3(1.0,0.0,0.0);
             }
+            // if (escaped > j+1 && abs(z1.value.y - 1.0) < length(z1.dc) * 0.003) {
+            //     color = vec3(0.0,0.5,0.3);
+            // }
             if (escaped > j+1 && abs(z1.value.y) < length(z1.dc) * 0.003) {
                 color = vec3(0.0,1.0,0.0);
             }
@@ -616,8 +620,10 @@ function paint() {
         if (params.timer !== null) {
             clearTimeout(params.timer);
         }
-        params.high_count += 1;
-        params.timer = setTimeout(paint, 300);
+        if (showHigh) {
+            params.high_count += 1;
+            params.timer = setTimeout(paint, 300);
+        }
     } else {
         ctx.bindFramebuffer(ctx.FRAMEBUFFER, glStuff.high.framebuffer);
         ctx.viewport(0, 0, glStuff.high.fbWidth, glStuff.high.fbHeight);
@@ -653,7 +659,28 @@ function paint() {
 }
 
 function mousedown() {
-    if (event.shiftKey) {
+    const x = event.clientX;
+    const y = event.clientY;
+    const originX = event.target.getBoundingClientRect().left;
+    const originY = event.target.getBoundingClientRect().top;
+    const hwidth = event.target.clientWidth / 2;
+    const hheight = event.target.clientHeight / 2;
+    const aspectX = event.target.clientWidth / Math.min(event.target.clientWidth, event.target.clientHeight);
+    const aspectY = event.target.clientHeight / Math.min(event.target.clientWidth, event.target.clientHeight);
+    const xy = [
+        ((x - originX - hwidth) / hwidth) * aspectX,
+        (-(y - originY - hheight) / hheight) * aspectY
+    ];
+    if (event.ctrlKey) {
+        if (params.mandelbrot) {
+            params.mandelbrot = false;
+            params.c = add(params.ccenter, mul(xy, params.cscale));
+            repaint();
+        } else {
+            params.mandelbrot = true;
+            repaint();
+        }
+    } else if (event.shiftKey) {
         params.j = Math.max(1, params.j-1);
         repaint();
     } else {
