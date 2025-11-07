@@ -7,9 +7,9 @@
     <script>
 "use strict";
 
-const A = 4;
-const B = 5;
-const showDots = false;
+const A = 3;
+const B = 3;
+const showDots = true;
 
 const uPowersArrays = {
     1: [0,1],
@@ -20,8 +20,8 @@ const uPowersArrays = {
 }
 
 let params = {
-    ccenter: [0.0, 0.0],
-    cscale: [2.0, 0.0],
+    ccenter: [-0.5, 0.0],
+    cscale: [2.5, 0.0],
 
     c: [-0.0, 0.0],
     z0: [0.0, 0.0],
@@ -194,7 +194,7 @@ function fragmentShaderSource(max_iter, max_period) {
         }
 
         D dsqrt(D z) {
-            vec2 s = other_csqrt(z.value);
+            vec2 s = csqrt(z.value);
             return D(
                 s,
                 0.5 * div(z.dc, s)
@@ -209,37 +209,20 @@ function fragmentShaderSource(max_iter, max_period) {
         }
 
         vec4 mandelbrot(vec2 actual_z0) {
-            D z = D(actual_z0, vec2(0.0, 0.0));
+            vec2 z = actual_z0;
             int escaped = -1;
-            float fiter = 0.0;
+            vec2 keep = one;
             vec3 color = vec3(0.0, 0.0, 0.0);
-            D sc = D(c, one);
-            if (!uMandelbrot) {
-                sc.dc = vec2(0.0,0.0);
-                z.dc = one * 5.0;
-            }
-            for (int iteration = 1; iteration < ${B+1}; iteration++) {
-                fiter = float(iteration);
-                if (length(z.value) > uBailout) {
+            for (int iteration = 1; iteration < ${max_iter}; iteration++) {
+                z = csquare(z) + c;
+                if (length(z) > uBailout) {
                     escaped = iteration;
                     break;
                 }
-                z = dmul(sc, dadd_const(dsquare(z), one));
-                if (iteration == ${A} || iteration == ${B}) {
-                    vec2 v = z.value;
-                    // if (abs(v.y) < 0.0020 * length(z.dc) && mod(log(abs(v.x)),1.0) < 0.05) {
-                    //     color += vec3(1.0,1.0,1.0);
-                    // }
-                    if (abs(v.y) < 0.0005 * length(z.dc)) {
-                        color += uPalette[iteration-1];
-                    }
-                    if (v.y >= 0.0005 * length(z.dc)) {
-                        color += uPalette[iteration-1] * 0.2;
-                    }
-                }
             }
 
-            return vec4(color, 1.0);
+            float fiter = sqrt(float(escaped)) / 20.0;
+            return vec4(fiter, fiter, fiter, 1.0);
         }
 
         void main(void) {
@@ -559,7 +542,7 @@ function blit_texture(ctx, stuff, texture) {
 
 function draw_dots(ctx, stuff) {
     ctx.useProgram(stuff.shaderProgram);
-    ctx.uniform1f(stuff.uPointSize, 2.0);
+    ctx.uniform1f(stuff.uPointSize, 4.0);
     ctx.uniform2f(stuff.uAspect, ctx.canvas.width / Math.min(ctx.canvas.width, ctx.canvas.height), ctx.canvas.height / Math.min(ctx.canvas.width, ctx.canvas.height));
 
     for (let i = params.plot_points.length-1; i >= 0; i--) {
@@ -638,11 +621,7 @@ function mousedown() {
         (-(y - originY - hheight) / hheight) * aspectY
     ];
     if (params.mandelbrot) {
-        if (event.ctrlKey) {
-            params.mandelbrot = false;
-            params.c = add(params.ccenter, mul(xy, params.cscale));
-            repaint();
-        } else if (!event.shiftKey) {
+        if (!event.shiftKey) {
             params.ccenter = add(params.ccenter, mul(xy, params.cscale));
             params.cscale = mul(params.cscale, [0.25, 0.0]);
             scale_mandelbrot_dots();
@@ -770,6 +749,14 @@ function div(x, y) {
     ];
 }
 
+function divEpsilon(x, y, epsilon) {
+    const denom = y[0] * y[0] + y[1] * y[1] + epsilon;
+    return [
+        (x[0] * y[0] + x[1] * y[1]) / denom,
+        (x[1] * y[0] - x[0] * y[1]) / denom
+    ];
+}
+
 function recip(z) {
     return div([1.0,0.0], z);
 }
@@ -783,6 +770,10 @@ function scale(r, c) {
 
 function cnorm(c) {
     return Math.hypot(c[0], c[1]);
+}
+
+function cnorm_squared(c) {
+    return c[0] * c[0] + c[1] * c[1];
 }
 
 function touchmove() {
@@ -963,6 +954,15 @@ function csqrt(z) {
     ];
 }
 
+function other_csqrt(z) {
+    const r = Math.sqrt(cnorm(z));
+    const theta = Math.atan2(-z[1], -z[0]);
+    return [
+        -r * Math.sin(theta / 2.0),
+        r * Math.cos(theta / 2.0)
+    ];
+}
+
 function solve_quadratic(a, b, c) {
     const discriminant = csqrt(sub(mul(b, b), scale(4.0, mul(a, c))));
     const root1 = div(sub(discriminant, b), scale(2.0, a));
@@ -970,54 +970,41 @@ function solve_quadratic(a, b, c) {
 }
 
 class Derivatives {
-    constructor(value, dz, dc) {
+    constructor(value, d) {
         this.value = value;
-        this.dz = dz;
-        this.dc = dc;
+        this.d = d;
     }
 
     static fromConstant(value) {
-        const z = [0.0, 0.0];
-        return new Derivatives(value, z, z);
+        return new Derivatives(value, [0.0, 0.0]);
     }
 
     static fromRealConstant(value) {
         return Derivatives.fromConstant([value, 0.0]);
     }
 
-    static fromZ(z) {
-        const one = [1.0, 0.0];
-        const zero = [0.0, 0.0];
-        return new Derivatives(z, one, zero);
-    }
-
-    static fromC(p) {
-        const one = [1.0, 0.0];
-        const zero = [0.0, 0.0];
-        return new Derivatives(p, zero, one);
+    static fromVar(v) {
+        return new Derivatives(v, [1.0, 0.0]);
     }
 
     add(other) {
         return new Derivatives(
             add(this.value, other.value),
-            add(this.dz, other.dz),
-            add(this.dc, other.dc)
+            add(this.d, other.d),
         );
     }
 
     sub(other) {
         return new Derivatives(
             sub(this.value, other.value),
-            sub(this.dz, other.dz),
-            sub(this.dc, other.dc)
+            sub(this.d, other.d),
         );
     }
 
     scale(r) {
         return new Derivatives(
             scale(r, this.value),
-            scale(r, this.dz),
-            scale(r, this.dc)
+            scale(r, this.d),
         );
     }
 
@@ -1025,12 +1012,8 @@ class Derivatives {
         return new Derivatives(
             mul(this.value, other.value),
             add(
-                mul(this.dz, other.value),
-                mul(this.value, other.dz)
-            ),
-            add(
-                mul(this.dc, other.value),
-                mul(this.value, other.dc)
+                mul(this.d, other.value),
+                mul(this.value, other.d)
             )
         );
     }
@@ -1040,8 +1023,7 @@ class Derivatives {
         const f1 = scale(-1, mul(f, f));
         return new Derivatives(
             f,
-            mul(f1, this.dz),
-            mul(f1, this.dc)
+            mul(f1, this.d)
         );
     }
 
@@ -1051,6 +1033,60 @@ class Derivatives {
 
     div(other) {
         return this.mul(other.recip());
+    }
+
+    real_part() {
+        return new RealDerivatives(this.value[0], [this.d[0], -this.d[1]]);
+    }
+
+    imag_part() {
+        return new RealDerivatives(this.value[1], [this.d[1], this.d[0]]);
+    }
+
+    cnorm_squared() {
+        return this.real_part().square().add(this.imag_part().square());
+    }
+}
+
+class RealDerivatives {
+    constructor(value, d) {
+        this.value = value;
+        this.d = d;
+    }
+
+    fromConstant(value) {
+        return new RealDerivatives(value, 0, 0);
+    }
+
+    together_with(other) {
+        // assumes this.value == other.value
+        return new RealDerivatives(this.value, this.d.concat(other.d));
+    }
+
+    add(other) {
+        let d = [];
+        for (let i = 0; i < this.d.length; i++) {
+            d.push(this.d[i] + other.d[i]);
+        }
+        return new RealDerivatives(
+            this.value + other.value,
+            d
+        );
+    }
+
+    mul(other) {
+        let d = [];
+        for (let i = 0; i < this.d.length; i++) {
+            d.push(this.d[i] * other.value + other.d[i] * this.value);
+        }
+        return new RealDerivatives(
+            this.value * other.value,
+            d,
+        )
+    }
+
+    square() {
+        return this.mul(this);
     }
 }
 
@@ -1121,8 +1157,103 @@ const palette = [
     [1,0.5,0],
     [0.7,0.5,1],
     [1,0,0],
-    [0.5,0.5,0],
 ]
+
+function iterate(z, c, n) {
+    for (let i = 0; i < n; i++) {
+        z = z.square().add(c);
+    }
+    return z;
+}
+
+function iterate_dash(z, c, n) {
+    let prod = Derivatives.fromRealConstant(1);
+    for (let i = 0; i < n-1; i++) {
+        z = z.square().add(c);
+        prod = prod.mul(z);
+    }
+    return prod;
+}
+
+function find_root(n, t) {
+    let z = [1.0, 0.0];
+    let c = [0.0, 1.5];
+    for (let i = 0; i < 20000; i++) {
+        params.unscaled_points.push(c);
+        params.plot_colors.push([1,0,0]);
+        let itz = iterate(Derivatives.fromVar(z), Derivatives.fromConstant(c), n).sub(Derivatives.fromVar(z));
+        let itc = iterate(Derivatives.fromConstant(z), Derivatives.fromVar(c), n).sub(Derivatives.fromConstant(z));
+        let fz = iterate_dash(Derivatives.fromVar(z), Derivatives.fromConstant(c), n).sub(Derivatives.fromConstant(t));
+        let fc = iterate_dash(Derivatives.fromConstant(z), Derivatives.fromVar(c), n).sub(Derivatives.fromConstant(t));
+        
+        let lossz = itz.cnorm_squared().add(fz.cnorm_squared());
+        let lossc = itc.cnorm_squared().add(fc.cnorm_squared());
+        let loss = lossz.together_with(lossc);
+        console.log(loss.value, z, c, loss.d, itz.value, fz.value);
+        let epsilon = 0.0002;
+        z = [z[0] - epsilon * loss.d[0], z[1] - epsilon * loss.d[1]];
+        c = [c[0] - epsilon * loss.d[2], c[1] - epsilon * loss.d[3]];
+    }
+    return c;
+}
+
+function find_roots(n, num_roots) {
+    let t = [0.0, 0.0];
+    let roots = [];
+    for (let i = 0; i < num_roots; i++) {
+        let c = Derivatives.fromVar([0.0, 2.0]);
+        for (let i = 0; i < 20; i++) {
+            let z = Derivatives.fromRealConstant(0.0);
+            for (let j = 0; j < n; j++) {
+                z = z.square().add(c);
+            }
+
+            for (let j = 0; j < roots.length; j++) {
+                z = z.div(c.sub(Derivatives.fromConstant(roots[j])));
+            }
+            c.value = add(c.value, div(sub(t, z.value), z.d));
+        }
+        if (Number.isNaN(c.value[0]) || Number.isNaN(c.value[1])) {
+            // give up if it's giving NaNs
+            break;
+        }
+        roots.push(c.value);
+    }
+    return roots;
+}
+
+function trace_from(root, n, epsilon) {
+    let c = Derivatives.fromVar(root);
+    let t = [0.0, 0.0];
+    for (let i = 0; i < 200; i++) {
+        params.unscaled_points.push(c.value);
+        params.plot_colors.push(palette[A-1]);
+        let z = Derivatives.fromRealConstant(0.0);
+        for (let j = 0; j < n; j++) {
+            z = z.square().add(c);
+        }
+        c.value = add(c.value, divEpsilon(sub(t, z.value), z.d, 0.0001));
+        const cs = other_csqrt(c.value);
+        const len = cnorm(cs);
+        t = add(t, scale(epsilon / len, cs));
+    }
+}
+
+function gen_mandelbrot_dots2() {
+    params.unscaled_points = [];
+
+    // let roots = find_roots(A, 1<<(A-1));
+    let roots = [find_root(A, [1,0])];
+    console.log("Roots", roots);
+
+    for (let r = 0; r < roots.length; r++) {
+        params.unscaled_points.push(roots[r]);
+        params.plot_colors.push(palette[A-1]);
+        // trace_from(roots[r], A, 0.01);
+        // trace_from(roots[r], A, -0.01);
+    }
+    scale_mandelbrot_dots();
+}
 
 function gen_mandelbrot_dots() {
     let theta = 0;
@@ -1356,7 +1487,7 @@ function start() {
     glStuff = setup();
     update_buttons();
     if (showDots) {
-        gen_mandelbrot_dots();
+        gen_mandelbrot_dots2();
     }
     paint();
 }

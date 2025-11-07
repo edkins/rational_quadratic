@@ -7,8 +7,8 @@
     <script>
 "use strict";
 
-const A = 4;
-const B = 5;
+const A = 3;
+const B = 9;
 const showDots = false;
 
 const uPowersArrays = {
@@ -20,8 +20,8 @@ const uPowersArrays = {
 }
 
 let params = {
-    ccenter: [0.0, 0.0],
-    cscale: [2.0, 0.0],
+    ccenter: [-0.5, 0.0],
+    cscale: [1.5, 0.0],
 
     c: [-0.0, 0.0],
     z0: [0.0, 0.0],
@@ -100,11 +100,11 @@ function fragmentShaderSource(max_iter, max_period) {
         }
 
         vec2 csqrt(vec2 z) {
-            float r = length(z);
+            float r = sqrt(length(z));
             float theta = atan(z.y, z.x);
             return vec2(
-                sqrt(r) * cos(theta / 2.0),
-                sqrt(r) * sin(theta / 2.0)
+                r * cos(theta / 2.0),
+                r * sin(theta / 2.0)
             );
         }
 
@@ -139,6 +139,18 @@ function fragmentShaderSource(max_iter, max_period) {
 
         float atan2(vec2 z) {
             return atan(z.y, z.x);
+        }
+
+        float angle(vec2 z) {
+            return mod(atan(z.y, z.x) / 6.28318530718, 1.0);
+        }
+
+        float angle_bump(vec2 z) {
+            float a = angle(z);
+            if (a > 0.5) {
+                a -= 0.2;
+            }
+            return a;
         }
 
         vec2 cexp(vec2 z) {
@@ -209,37 +221,68 @@ function fragmentShaderSource(max_iter, max_period) {
         }
 
         vec4 mandelbrot(vec2 actual_z0) {
-            D z = D(actual_z0, vec2(0.0, 0.0));
             int escaped = -1;
             float fiter = 0.0;
             vec3 color = vec3(0.0, 0.0, 0.0);
-            D sc = D(c, one);
-            if (!uMandelbrot) {
-                sc.dc = vec2(0.0,0.0);
-                z.dc = one * 5.0;
-            }
-            for (int iteration = 1; iteration < ${B+1}; iteration++) {
+            vec2 z = actual_z0;
+            for (int iteration = 1; iteration <= 5; iteration++) {
                 fiter = float(iteration);
-                if (length(z.value) > uBailout) {
+                if (length(z) > uBailout) {
                     escaped = iteration;
                     break;
                 }
-                z = dmul(sc, dadd_const(dsquare(z), one));
-                if (iteration == ${A} || iteration == ${B}) {
-                    vec2 v = z.value;
-                    // if (abs(v.y) < 0.0020 * length(z.dc) && mod(log(abs(v.x)),1.0) < 0.05) {
-                    //     color += vec3(1.0,1.0,1.0);
-                    // }
-                    if (abs(v.y) < 0.0005 * length(z.dc)) {
-                        color += uPalette[iteration-1];
-                    }
-                    if (v.y >= 0.0005 * length(z.dc)) {
-                        color += uPalette[iteration-1] * 0.2;
-                    }
-                }
+                z = csquare(z) + c;
             }
 
-            return vec4(color, 1.0);
+            vec2 d = -c;
+            float thing = min(
+                min(
+                    min(
+                        min(
+                            length(d - csqrt(d - csqrt(d - csqrt(d - csqrt(d))))),
+                            length(d - csqrt(d - csqrt(d - csqrt(d + csqrt(d)))))
+                        ),
+                        min(
+                            length(d - csqrt(d - csqrt(d + csqrt(d - csqrt(d))))),
+                            length(d - csqrt(d - csqrt(d + csqrt(d + csqrt(d)))))
+                        )
+                    ),
+                    min(
+                        min(
+                            length(d - csqrt(d + csqrt(d - csqrt(d - csqrt(d))))),
+                            length(d - csqrt(d + csqrt(d - csqrt(d + csqrt(d)))))
+                        ),
+                        min(
+                            length(d - csqrt(d + csqrt(d + csqrt(d - csqrt(d))))),
+                            length(d - csqrt(d + csqrt(d + csqrt(d + csqrt(d)))))
+                        )
+                    )
+                ),
+                min(
+                    min(
+                        min(
+                            length(d + csqrt(d - csqrt(d - csqrt(d - csqrt(d))))),
+                            length(d + csqrt(d - csqrt(d - csqrt(d + csqrt(d)))))
+                        ),
+                        min(
+                            length(d + csqrt(d - csqrt(d + csqrt(d - csqrt(d))))),
+                            length(d + csqrt(d - csqrt(d + csqrt(d + csqrt(d)))))
+                        )
+                    ),
+                    min(
+                        min(
+                            length(d + csqrt(d + csqrt(d - csqrt(d - csqrt(d))))),
+                            length(d + csqrt(d + csqrt(d - csqrt(d + csqrt(d)))))
+                        ),
+                        min(
+                            length(d + csqrt(d + csqrt(d + csqrt(d - csqrt(d))))),
+                            length(d + csqrt(d + csqrt(d + csqrt(d + csqrt(d)))))
+                        )
+                    )
+                )
+            );
+            fiter /= 20.0;
+            return vec4(sqrt(length(z)), 2.0 * thing, 0.0, 1.0);
         }
 
         void main(void) {
@@ -1071,27 +1114,6 @@ function direction_to_go(z) {
         }
     }
     return div(Z.value, Z.dz);
-}
-
-function gen_dots() {
-    let c = params.c;
-    let z = c;
-    let prev = [0,0];
-
-    params.plot_points = [];
-    for (let i = 0; i < 500; i++) {
-        let d = direction_to_go(z);
-        z = add(z, scale(1, d));
-        // let preimage = csqrt(sub(z, c));
-        // if (cnorm(sub(prev,preimage)) > cnorm(add(prev,preimage))) {
-        //     preimage = scale(-1, preimage);
-        // }
-        // prev = preimage;
-        params.plot_points.push(div(sub(z, params.z0), params.z0Scale));
-        if (cnorm(z) > 1000) {
-            break;
-        }
-    }
 }
 
 function mandelbrot_direction_to_go(c,target,target_iter) {
