@@ -1088,6 +1088,18 @@ class RealDerivatives {
     square() {
         return this.mul(this);
     }
+
+    sqrt() {
+        let v = Math.sqrt(this.value);
+        let d = [];
+        for (let i = 0; i < this.d.length; i++) {
+            d.push(this.d[i] * 0.5 / v);
+        }
+        return new RealDerivatives(
+            v,
+            d
+        )
+    }
 }
 
 function target(x, y) {
@@ -1168,19 +1180,19 @@ function iterate(z, c, n) {
 
 function iterate_dash(z, c, n) {
     let prod = Derivatives.fromRealConstant(1);
-    for (let i = 0; i < n-1; i++) {
+    for (let i = 0; i < n; i++) {
         z = z.square().add(c);
-        prod = prod.mul(z);
+        prod = prod.mul(z.scale(2));
     }
     return prod;
 }
 
-function find_root(n, t) {
-    let z = [1.0, 0.0];
-    let c = [0.0, 1.5];
-    for (let i = 0; i < 20000; i++) {
-        params.unscaled_points.push(c);
-        params.plot_colors.push([1,0,0]);
+function find_root(n, t, z0, c0) {
+    let z = z0;
+    let c = c0;
+    for (let i = 0; i < 1000; i++) {
+        // params.unscaled_points.push(c);
+        // params.plot_colors.push([1,0,0]);
         let itz = iterate(Derivatives.fromVar(z), Derivatives.fromConstant(c), n).sub(Derivatives.fromVar(z));
         let itc = iterate(Derivatives.fromConstant(z), Derivatives.fromVar(c), n).sub(Derivatives.fromConstant(z));
         let fz = iterate_dash(Derivatives.fromVar(z), Derivatives.fromConstant(c), n).sub(Derivatives.fromConstant(t));
@@ -1188,9 +1200,9 @@ function find_root(n, t) {
         
         let lossz = itz.cnorm_squared().add(fz.cnorm_squared());
         let lossc = itc.cnorm_squared().add(fc.cnorm_squared());
-        let loss = lossz.together_with(lossc);
+        let loss = lossz.together_with(lossc).sqrt();
         console.log(loss.value, z, c, loss.d, itz.value, fz.value);
-        let epsilon = 0.0002;
+        let epsilon = 0.002;
         z = [z[0] - epsilon * loss.d[0], z[1] - epsilon * loss.d[1]];
         c = [c[0] - epsilon * loss.d[2], c[1] - epsilon * loss.d[3]];
     }
@@ -1243,7 +1255,10 @@ function gen_mandelbrot_dots2() {
     params.unscaled_points = [];
 
     // let roots = find_roots(A, 1<<(A-1));
-    let roots = [find_root(A, [1,0])];
+    let roots = [];
+    for (let i = 0; i < 10; i++) {
+        roots.push(find_root(A, [1,0], [Math.random()*2-1, Math.random()-.5], [Math.random()*2-1, Math.random()-.5]));
+    }
     console.log("Roots", roots);
 
     for (let r = 0; r < roots.length; r++) {
