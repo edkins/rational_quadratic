@@ -23,7 +23,7 @@ def parity_str(p: np.ndarray) -> str:
     return result
 
 def main():
-    rangemax = 14
+    rangemax = 4
     float_pairings = []
     for n in range(2,rangemax+1):
         pairings = {}
@@ -46,8 +46,12 @@ def main():
         full_parity_eq = (parities.reshape(1,denom+1,n-2) == parities.reshape(denom+1,1,n-2)).all(axis=-1)
         parity_eq = full_parity_eq[:,reduced_ixs]
         if n <= 9:
-            for row in parity_eq[reduced_ixs[:len(reduced_ixs)//2],:]:
-                print(parity_str(row[:len(row)//2]))
+            if n <= 6:
+                for row in parity_eq[reduced_ixs,:]:
+                    print(parity_str(row))
+            else:
+                for row in parity_eq[reduced_ixs[:len(reduced_ixs)//2],:]:
+                    print(parity_str(row[:len(row)//2]))
         for a in range(1,denom):
             if not is_reduced(a,n):
                 if n <= 11:

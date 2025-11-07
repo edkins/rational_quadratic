@@ -44,6 +44,7 @@ let params = {
     unscaled_points: [],
 
     j: 3,
+    contour: 1.0,
 
     frac: {num:0,denom:7}
     // frac: binfrac("","000111")
@@ -78,6 +79,7 @@ function fragmentShaderSource(max_iter, max_period) {
         uniform float uFracNum;
         uniform float uFracDenom;
         uniform vec2 ucscale;
+        uniform float uContour;
         uniform vec3 uPalette[${palette.length}];
         uniform int j;
         const vec2 one = vec2(1.0, 0.0);
@@ -239,26 +241,29 @@ function fragmentShaderSource(max_iter, max_period) {
                 fiter = 0.0;
             }
             vec3 color = vec3(fiter, fiter, fiter);
+            if (z0.value.y > 0.0) {
+                color.r += 0.05;
+            }
 
             // if ((div(z0.dc,csquare(c)).x > 0.0)) {
             //     color.b += 0.5;
             // }
-            if (escaped > j+1 && (length(z0.dc) < 0.2)) {
-                if (z0.value.y > 1.0) {
+            if (escaped > j+1 && (length(z0.dc) < 0.4)) {
+                if (abs(z0.value.y) > 1.0) {
                     color = vec3(0.5,0.5,1.0);
                 } else {
                     color = vec3(0.0,0.0,1.0);
                 }
             }
             float w = length(ucscale) * 0.003;
-            if (escaped > j && abs(z0.value.y - 1.0) < length(z0.dc) * w) {
+            if (escaped > j && abs(z0.value.y - uContour) < length(z0.dc) * w) {
                 color = vec3(0.5,0.3,0.0);
             }
+            // if (escaped > j && abs(z0.value.y + 1.0) < length(z0.dc) * w) {
+            //     color = vec3(0.5,0.0,0.5);
+            // }
             if (escaped > j && abs(z0.value.y) < length(z0.dc) * w) {
                 color = vec3(1.0,0.0,0.0);
-            }
-            if (escaped > j+1 && abs(z1.value.y) < length(z1.dc) * w) {
-                color = vec3(0.0,1.0,0.0);
             }
             return vec4(color, 1.0);
         }
@@ -487,7 +492,7 @@ function setup() {
             uPowers: ctx.getUniformLocation(shaderProgram, "uPowers"),
             uPalette: ctx.getUniformLocation(shaderProgram, "uPalette"),
             uj: ctx.getUniformLocation(shaderProgram, "j"),
-
+            uContour: ctx.getUniformLocation(shaderProgram, "uContour"),
         },
         high: {
             shaderProgram: shaderProgramHigh,
@@ -516,6 +521,7 @@ function setup() {
             uPowers: ctx.getUniformLocation(shaderProgramHigh, "uPowers"),
             uPalette: ctx.getUniformLocation(shaderProgramHigh, "uPalette"),
             uj: ctx.getUniformLocation(shaderProgramHigh, "j"),
+            uContour: ctx.getUniformLocation(shaderProgramHigh, "uContour"),
         },
         blit: {
             shaderProgram: shaderProgramBlit,
@@ -549,6 +555,7 @@ function paintMandelbrot(ctx, stuff, nudgeX, nudgeY) {
     }
     ctx.uniform3fv(stuff.uPalette, paletteConcat);
     ctx.uniform1i(stuff.uj, params.j);
+    ctx.uniform1f(stuff.uContour, params.contour);
 
     if (params.mandelbrot) {
         ctx.uniform1i(stuff.uMandelbrot, true);
@@ -683,20 +690,17 @@ function mousedown() {
 }
 
 function mousemove() {
-    // if (event.buttons === 1) {
-    //     const x = event.clientX;
-    //     const y = event.clientY;
-    //     const originX = event.target.getBoundingClientRect().left;
-    //     const originY = event.target.getBoundingClientRect().top;
-    //     const hwidth = event.target.clientWidth / 2;
-    //     const hheight = event.target.clientHeight / 2;
-        
-    //     let param = (y - originY) / hheight;
-    //     param = Math.pow(param, 3) / 16;
-    //     params.c = [-0.75, param];
-    //     params.mandelbrot = false;
-    //     repaint();
-    // }
+    if (event.shiftKey) {
+        const x = event.clientX;
+        const y = event.clientY;
+        const originX = event.target.getBoundingClientRect().left;
+        const originY = event.target.getBoundingClientRect().top;
+        const hwidth = event.target.clientWidth / 2;
+        const hheight = event.target.clientHeight / 2;
+        let param = (y - originY) / hheight - 1;
+        params.contour = -param * 2.0;
+        repaint();
+    }
 }
 
 function mousewheel() {
