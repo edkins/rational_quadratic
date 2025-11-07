@@ -77,6 +77,7 @@ function fragmentShaderSource(max_iter, max_period) {
         uniform float uBailout;
         uniform float uFracNum;
         uniform float uFracDenom;
+        uniform vec2 ucscale;
         uniform vec3 uPalette[${palette.length}];
         uniform int j;
         const vec2 one = vec2(1.0, 0.0);
@@ -237,36 +238,28 @@ function fragmentShaderSource(max_iter, max_period) {
             if (escaped == ${max_iter}) {
                 fiter = 0.0;
             }
-            // fiter = angle_bump(z0.value - vec2(0.0,1.0));
             vec3 color = vec3(fiter, fiter, fiter);
 
-            // if (z0.value.y > 0.0) {
-            //     color.r += 0.1;
-            // }
-
-            if (escaped > j+1 && (length(z1.dc) < 0.5)) {
-                if (z0.value.y > 1.0) {
-                    color = vec3(0.5,0.5,1.0);
-                } else {
-                    color = vec3(0.0,0.0,1.0);
-                }
+            if ((z0.dc.y > 0.0) == (c.x > 0.0)) {
+                color.b += 0.5;
             }
-            if (escaped > j && abs(z0.value.y - 1.0) < length(z0.dc) * 0.003) {
+            // if (escaped > j+1 && (length(z1.dc) < 0.5)) {
+            //     if (z0.value.y > 1.0) {
+            //         color = vec3(0.5,0.5,1.0);
+            //     } else {
+            //         color = vec3(0.0,0.0,1.0);
+            //     }
+            // }
+            float w = length(ucscale) * 0.003;
+            if (escaped > j && abs(z0.value.y - 1.0) < length(z0.dc) * w) {
                 color = vec3(0.5,0.3,0.0);
             }
-            if (escaped > j && abs(z0.value.y) < length(z0.dc) * 0.003) {
+            if (escaped > j && abs(z0.value.y) < length(z0.dc) * w) {
                 color = vec3(1.0,0.0,0.0);
             }
-            // if (escaped > j+1 && abs(z1.value.y - 1.0) < length(z1.dc) * 0.003) {
-            //     color = vec3(0.0,0.5,0.3);
-            // }
-            if (escaped > j+1 && abs(z1.value.y) < length(z1.dc) * 0.003) {
+            if (escaped > j+1 && abs(z1.value.y) < length(z1.dc) * w) {
                 color = vec3(0.0,1.0,0.0);
             }
-            // D dots = dadd_const(dsquare(z0), one);
-            // if (escaped > j+1 && length(dots.value) < length(dots.dc) * 0.005) {
-            //     color = vec3(1.0,0.5,0.0);
-            // }
             return vec4(color, 1.0);
         }
 
@@ -707,6 +700,23 @@ function mousemove() {
 }
 
 function mousewheel() {
+    const x = event.clientX;
+    const y = event.clientY;
+    const originX = event.target.getBoundingClientRect().left;
+    const originY = event.target.getBoundingClientRect().top;
+    const hwidth = event.target.clientWidth / 2;
+    const hheight = event.target.clientHeight / 2;
+    const aspectX = event.target.clientWidth / Math.min(event.target.clientWidth, event.target.clientHeight);
+    const aspectY = event.target.clientHeight / Math.min(event.target.clientWidth, event.target.clientHeight);
+    let sc = Math.pow(1.001, event.deltaY);
+    const xy = [
+        ((x - originX - hwidth) / hwidth) * aspectX,
+        (-(y - originY - hheight) / hheight) * aspectY
+    ];
+    params.ccenter = add(params.ccenter, scale((1 - sc) * 1.2, mul(xy, params.cscale)));
+    params.cscale[0] *= sc;
+    params.cscale[1] *= sc;
+    repaint();
 }
 
 function touchstart() {
