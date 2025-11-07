@@ -10,7 +10,7 @@
 const showDots = false;
 const showHigh = false;
 
-const MAXIMUM = 7;
+const MAXIMUM = 5;
 const PMAXIMUM = 5;
 
 function make_angles() {
@@ -263,6 +263,11 @@ function fragmentShaderSource(max_iter, max_period) {
             return 0;
         }
 
+        float find_int_between(float ang_min, float ang_max) {
+            float middle = (ang_min + ang_max) * 0.5;
+            return floor(middle + 0.5);
+        }
+
         struct D {
             vec2 value;
             vec2 dc;
@@ -329,13 +334,14 @@ function fragmentShaderSource(max_iter, max_period) {
             D z = D(actual_z0, zero);
             D cc = D(c, one);
             int escaped = ${max_iter};
-            float prevAng = 0.0;
-            float ang = 0.0;
+            float ang_min = 0.0;
+            float ang_max = 1.0;
             const int maximum = ${MAXIMUM};
-            float denom = 0.5;
+            float denom = 2.0;
             int yikes = 0;
             float w = 0.0;
             bool highlight = false;
+            float max_yikes = 0.0;
             for (int iteration = 1; iteration < ${max_iter}; iteration++) {
                 z = dadd(dsquare(z), cc);
                 if (length(z.value) > uBailout) {
@@ -343,19 +349,22 @@ function fragmentShaderSource(max_iter, max_period) {
                     break;
                 }
                 if (iteration <= maximum) {
-                    prevAng *= 2.0;
-                    ang *= 2.0;
-                    denom *= 2.0;
+                    ang_min *= 2.0;
+                    ang_max *= 2.0;
                     float candidate = angle(z.value);
-                    yikes += nearest_yikes(ang, candidate);
-                    ang = nearest(ang, candidate);
-                    w = 0.0003 * length(ucscale) / denom / length(z.value) * length(z.dc);
+                    float ang_middle = candidate + find_int_between(ang_min - candidate, ang_max - candidate);
+                    if (iteration >= 2) {
+                        max_yikes = max(max_yikes, 1.0 - min(ang_middle - ang_min, ang_max - ang_middle));
+                    }
+                    ang_min = ang_middle - 0.5;
+                    ang_max = ang_middle + 0.5;
+                    denom *= 0.5;
+                    w = 0.0003 * length(ucscale) * denom / length(z.value) * length(z.dc);
                 }
             }
-            ang /= denom;
+            float ang = (ang_min + ang_max) * 0.5;
+            ang *= denom;
             ang = mod(ang, 1.0);
-            prevAng /= denom;
-            prevAng = mod(prevAng, 1.0);
 
             float fiter = log(float(escaped)) / 15.0;
             if (escaped == ${max_iter}) {
@@ -375,6 +384,9 @@ function fragmentShaderSource(max_iter, max_period) {
                 for (int i = 0; i < ${angles.length}; i++) {
                     if (abs(ang - uAngles[i]) < w) {
                         color = uPalette[i];
+                        // if (z.value.y < 0.0) {
+                        //     color *= 0.5;
+                        // }
                     }
                 }
             }
