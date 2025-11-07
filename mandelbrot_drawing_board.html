@@ -10,6 +10,64 @@
 const showDots = false;
 const showHigh = false;
 
+const angles = [
+    0,
+    1/31,
+    2/31,
+    1/15,
+    3/31,
+    4/31,
+    2/15,
+    1/7,
+    5/31,
+    6/31,
+    3/15,
+    7/31,
+    8/31,
+    4/15,
+    2/7,
+    9/31,
+    10/31,
+
+    1/3,
+    11/31,
+    12/31,
+    6/15,
+    13/31,
+    3/7,
+    14/31,
+    7/15,
+    15/31,
+
+
+    16/31,
+    8/15,
+    17/31,
+    4/7,
+    18/31,
+    9/15,
+    19/31,
+    20/31,
+    2/3,
+
+    21/31,
+    22/31,
+    5/7,
+    11/15,
+    23/31,
+    24/31,
+    12/15,
+    25/31,
+    26/31,
+    6/7,
+    13/15,
+    27/31,
+    28/31,
+    14/15,
+    29/31,
+    30/31,
+];
+
 const uPowersArrays = {
     1: [0,1],
     2: [0,0,1],
@@ -20,7 +78,7 @@ const uPowersArrays = {
 
 let params = {
     ccenter: [0.0, 0.0],
-    cscale: [2.0, 0.0],
+    cscale: [25.0, 0.0],
 
     c: [-0.0, 0.0],
     z0: [0.0, 0.0],
@@ -80,7 +138,8 @@ function fragmentShaderSource(max_iter, max_period) {
         uniform float uFracDenom;
         uniform vec2 ucscale;
         uniform vec2 uContour;
-        uniform vec3 uPalette[${palette.length}];
+        uniform float uAngles[${angles.length}];
+        uniform vec3 uPalette[${angles.length}];
         uniform int j;
         const vec2 one = vec2(1.0, 0.0);
 
@@ -129,12 +188,8 @@ function fragmentShaderSource(max_iter, max_period) {
             );
         }
 
-        float angle_bump(vec2 z) {
-            float result = mod(atan(z.y,z.x) / 6.28318530718, 1.0);
-            if (result > 0.5) {
-                result -= 0.1;
-            }
-            return result;
+        float angle(vec2 z) {
+            return mod(atan(z.y,z.x) / 6.28318530718, 1.0);
         }
 
         float atan2(vec2 z) {
@@ -216,50 +271,51 @@ function fragmentShaderSource(max_iter, max_period) {
             );
         }
 
+        D dpow(D z, int n) {
+            vec2 p = cpow(z.value, n);
+            return D(
+                p,
+                float(n) * div(mul(p, z.dc), z.value)
+            );
+        }
+
         vec4 mandelbrot(vec2 actual_z0) {
-            D z = D(actual_z0, vec2(0.0,0.0));
-            D cc = D(c, one);
+            vec2 z = actual_z0;
             int escaped = ${max_iter};
-            D z0;
-            D z1;
+            float prevAng = 0.0;
+            float ang = 0.0;
+            const int maximum = 10;
+            float denom = 0.5;
             for (int iteration = 1; iteration < ${max_iter}; iteration++) {
-                z = dmul(dadd_const(dsquare(z),one),cc);
-                if (length(z.value) > uBailout) {
+                z = csquare(z) + c;
+                if (length(z) > uBailout) {
                     escaped = iteration;
                     break;
                 }
-                if (iteration == j) {
-                    z0 = z;
-                }
-                if (iteration == j+1) {
-                    z1 = z;
+                if (iteration <= maximum) {
+                    prevAng *= 2.0;
+                    ang *= 2.0;
+                    denom *= 2.0;
+                    float candidate = angle(z);
+                    float nextAng = nearest(ang, candidate);
+                    // nextAng = nearest(prevAng, nextAng);
+                    prevAng = ang;
+                    ang = nextAng;
                 }
             }
+            ang /= denom;
+            ang = mod(ang, 1.0);
 
+            float w = length(ucscale) * 0.003;
             float fiter = log(float(escaped)) / 15.0;
             if (escaped == ${max_iter}) {
-                fiter = 0.0;
+                return vec4(0.0, 0.0, 0.0, 1.0);
             }
             vec3 color = vec3(fiter, fiter, fiter);
-            if (escaped > j+1 && (length(z0.dc) < 0.4)) {
-                if (abs(z0.value.y) > 1.0) {
-                    color = vec3(0.5,0.5,1.0);
-                } else {
-                    color = vec3(0.0,0.0,1.0);
+            for (int i = 0; i < ${angles.length}; i++) {
+                if (ang > uAngles[i] && ang < uAngles[i] + 0.001) {
+                    color = uPalette[i];
                 }
-            }
-            float w = length(ucscale) * 0.003;
-            if (escaped > j && abs(z0.value.y - uContour.y) < length(z0.dc) * w) {
-                color = vec3(0.5,0.3,0.0);
-            }
-            // if (escaped > j && abs(z0.value.x - uContour.x) < length(z0.dc) * w) {
-            //     color = vec3(0.3,0.3,0.0);
-            // }
-            if (escaped > j && abs(z0.value.y - 1.0) < length(z0.dc) * w) {
-                color = vec3(0.3,0.3,0.5);
-            }
-            if (escaped > j && abs(z0.value.y) < length(z0.dc) * w) {
-                color = vec3(1.0,0.0,0.0);
             }
             return vec4(color, 1.0);
         }
@@ -473,7 +529,7 @@ function setup() {
             uBailout: ctx.getUniformLocation(shaderProgram, "uBailout"),
             uBailin: ctx.getUniformLocation(shaderProgram, "uBailin"),
             bailin: 0.002,
-            bailout: 1000000,
+            bailout: 1000,
             uNudge: ctx.getUniformLocation(shaderProgram, "uNudge"),
             vertexBuffer,
             destTexture,
@@ -487,6 +543,7 @@ function setup() {
             uFracDenom: ctx.getUniformLocation(shaderProgram, "uFracDenom"),
             uPowers: ctx.getUniformLocation(shaderProgram, "uPowers"),
             uPalette: ctx.getUniformLocation(shaderProgram, "uPalette"),
+            uAngles: ctx.getUniformLocation(shaderProgram, "uAngles"),
             uj: ctx.getUniformLocation(shaderProgram, "j"),
             uContour: ctx.getUniformLocation(shaderProgram, "uContour"),
         },
@@ -502,7 +559,7 @@ function setup() {
             uBailout: ctx.getUniformLocation(shaderProgramHigh, "uBailout"),
             uBailin: ctx.getUniformLocation(shaderProgramHigh, "uBailin"),
             bailin: 0.001,
-            bailout: 1000000,
+            bailout: 1000,
             uNudge: ctx.getUniformLocation(shaderProgramHigh, "uNudge"),
             vertexBuffer,
             destTexture: destTextureHigh,
@@ -516,6 +573,7 @@ function setup() {
             uFracDenom: ctx.getUniformLocation(shaderProgramHigh, "uFracDenom"),
             uPowers: ctx.getUniformLocation(shaderProgramHigh, "uPowers"),
             uPalette: ctx.getUniformLocation(shaderProgramHigh, "uPalette"),
+            uAngles: ctx.getUniformLocation(shaderProgramHigh, "uAngles"),
             uj: ctx.getUniformLocation(shaderProgramHigh, "j"),
             uContour: ctx.getUniformLocation(shaderProgramHigh, "uContour"),
         },
@@ -546,10 +604,19 @@ function paintMandelbrot(ctx, stuff, nudgeX, nudgeY) {
 
     // ctx.uniform1iv(stuff.uPowers, uPowersArrays[B]);
     const paletteConcat = [];
-    for (let i = 0; i < palette.length; i++) {
-        paletteConcat.push(...palette[i]);
+    for (let i = 0; i < angles.length; i++) {
+        let pi = 0;
+        for (let j = 0; j < 5; j++) {
+            let num = angles[i] * ((2<<j) - 1);
+            if (Math.abs(num - Math.round(num)) < 0.01) {
+                pi = j;
+                break;
+            }
+        }
+        paletteConcat.push(...palette[pi]);
     }
     ctx.uniform3fv(stuff.uPalette, paletteConcat);
+    ctx.uniform1fv(stuff.uAngles, angles);
     ctx.uniform1i(stuff.uj, params.j);
     ctx.uniform2f(stuff.uContour, params.contour[0], params.contour[1]);
 
