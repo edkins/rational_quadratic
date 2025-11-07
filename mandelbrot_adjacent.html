@@ -240,16 +240,16 @@ function fragmentShaderSource(max_iter, max_period) {
             }
             vec3 color = vec3(fiter, fiter, fiter);
 
-            if ((z0.dc.y > 0.0) == (c.x > 0.0)) {
-                color.b += 0.5;
-            }
-            // if (escaped > j+1 && (length(z1.dc) < 0.5)) {
-            //     if (z0.value.y > 1.0) {
-            //         color = vec3(0.5,0.5,1.0);
-            //     } else {
-            //         color = vec3(0.0,0.0,1.0);
-            //     }
+            // if ((div(z0.dc,csquare(c)).x > 0.0)) {
+            //     color.b += 0.5;
             // }
+            if (escaped > j+1 && (length(z0.dc) < 0.2)) {
+                if (z0.value.y > 1.0) {
+                    color = vec3(0.5,0.5,1.0);
+                } else {
+                    color = vec3(0.0,0.0,1.0);
+                }
+            }
             float w = length(ucscale) * 0.003;
             if (escaped > j && abs(z0.value.y - 1.0) < length(z0.dc) * w) {
                 color = vec3(0.5,0.3,0.0);
