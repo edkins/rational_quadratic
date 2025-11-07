@@ -10,63 +10,94 @@
 const showDots = false;
 const showHigh = false;
 
-const angles = [
-    0,
-    1/31,
-    2/31,
-    1/15,
-    3/31,
-    4/31,
-    2/15,
-    1/7,
-    5/31,
-    6/31,
-    3/15,
-    7/31,
-    8/31,
-    4/15,
-    2/7,
-    9/31,
-    10/31,
+const MAXIMUM = 7;
+const PMAXIMUM = 5;
 
-    1/3,
-    11/31,
-    12/31,
-    6/15,
-    13/31,
-    3/7,
-    14/31,
-    7/15,
-    15/31,
+function make_angles() {
+    let result = [];
+    for (let j = 1; j <= PMAXIMUM; j++) {
+        let denom = (1<<j) - 1;
+        for (let i = 0; i < denom; i++) {
+            let found = false;
+            for (let k = 0; k < result.length; k++) {
+                if (result[k][2] * denom === i * result[k][3]) {
+                    found = true;
+                }
+            }
+            if (!found) {
+                result.push([i / denom, j, i, denom]);
+            }
+        }
+    }
+    result.sort((a,b) => a[0]-b[0]);
+    let result_a = [];
+    let result_j = [];
+    for (let i = 0; i < result.length; i++) {
+        result_a.push(result[i][0]);
+        result_j.push(result[i][1]);
+    }
+    return [result_a, result_j];
+}
+
+const [angles, angles_j] = make_angles();
+
+// const angles = [
+//     0,
+//     1/31,
+//     2/31,
+//     1/15,
+//     3/31,
+//     4/31,
+//     2/15,
+//     1/7,
+//     5/31,
+//     6/31,
+//     3/15,
+//     7/31,
+//     8/31,
+//     4/15,
+//     2/7,
+//     9/31,
+//     10/31,
+
+//     1/3,
+//     11/31,
+//     12/31,
+//     6/15,
+//     13/31,
+//     3/7,
+//     14/31,
+//     7/15,
+//     15/31,
 
 
-    16/31,
-    8/15,
-    17/31,
-    4/7,
-    18/31,
-    9/15,
-    19/31,
-    20/31,
-    2/3,
+//     16/31,
+//     8/15,
+//     17/31,
+//     4/7,
+//     18/31,
+//     9/15,
+//     19/31,
+//     20/31,
+//     2/3,
 
-    21/31,
-    22/31,
-    5/7,
-    11/15,
-    23/31,
-    24/31,
-    12/15,
-    25/31,
-    26/31,
-    6/7,
-    13/15,
-    27/31,
-    28/31,
-    14/15,
-    29/31,
-    30/31,
-];
+//     21/31,
+//     22/31,
+//     5/7,
+//     11/15,
+//     23/31,
+//     24/31,
+//     12/15,
+//     25/31,
+//     26/31,
+//     6/7,
+//     13/15,
+//     27/31,
+//     28/31,
+//     14/15,
+//     29/31,
+//     30/31,
+// ];
 
 const uPowersArrays = {
     1: [0,1],
@@ -77,8 +108,8 @@ const uPowersArrays = {
 }
 
 let params = {
-    ccenter: [0.0, 0.0],
-    cscale: [25.0, 0.0],
+    ccenter: [-0.65, 0.0],
+    cscale: [1.5, 0.0],
 
     c: [-0.0, 0.0],
     z0: [0.0, 0.0],
@@ -142,6 +173,7 @@ function fragmentShaderSource(max_iter, max_period) {
         uniform vec3 uPalette[${angles.length}];
         uniform int j;
         const vec2 one = vec2(1.0, 0.0);
+        const vec2 zero = vec2(0.0, 0.0);
 
         vec2 mul(vec2 x, vec2 y) {
             return vec2(
@@ -221,8 +253,14 @@ function fragmentShaderSource(max_iter, max_period) {
             return x - floor(x);
         }
 
-        bool nearest_yikes(float course, float fine) {
-            return frac(course - fine + 0.5) < 0.01 || frac(course - fine + 0.5) > 0.99;
+        int nearest_yikes(float course, float fine) {
+            if (frac(course - fine + 0.5) < 0.01) {
+                return -1;
+            }
+            if (frac(course - fine + 0.5) > 0.99) {
+                return 1;
+            }
+            return 0;
         }
 
         struct D {
@@ -288,16 +326,19 @@ function fragmentShaderSource(max_iter, max_period) {
         }
 
         vec4 mandelbrot(vec2 actual_z0) {
-            vec2 z = actual_z0;
+            D z = D(actual_z0, zero);
+            D cc = D(c, one);
             int escaped = ${max_iter};
             float prevAng = 0.0;
             float ang = 0.0;
-            const int maximum = 30;
+            const int maximum = ${MAXIMUM};
             float denom = 0.5;
-            bool yikes = false;
+            int yikes = 0;
+            float w = 0.0;
+            bool highlight = false;
             for (int iteration = 1; iteration < ${max_iter}; iteration++) {
-                z = csquare(z) + c;
-                if (length(z) > uBailout) {
+                z = dadd(dsquare(z), cc);
+                if (length(z.value) > uBailout) {
                     escaped = iteration;
                     break;
                 }
@@ -305,9 +346,10 @@ function fragmentShaderSource(max_iter, max_period) {
                     prevAng *= 2.0;
                     ang *= 2.0;
                     denom *= 2.0;
-                    float candidate = angle(z);
-                    yikes = yikes || nearest_yikes(ang, candidate);
+                    float candidate = angle(z.value);
+                    yikes += nearest_yikes(ang, candidate);
                     ang = nearest(ang, candidate);
+                    w = 0.0003 * length(ucscale) / denom / length(z.value) * length(z.dc);
                 }
             }
             ang /= denom;
@@ -315,24 +357,23 @@ function fragmentShaderSource(max_iter, max_period) {
             prevAng /= denom;
             prevAng = mod(prevAng, 1.0);
 
-            float w = length(ucscale) * 0.003;
             float fiter = log(float(escaped)) / 15.0;
             if (escaped == ${max_iter}) {
                 return vec4(0.0, 0.0, 0.0, 1.0);
             }
             vec3 color = vec3(fiter, fiter, fiter);
-            if (escaped <= maximum) {
-                if (ang > 1.0/7.0 && ang < 5.0/31.0) {
+            if (highlight) {
+                color.r += 0.2;
+            }
+            if (escaped <= maximum || true) {
+                if (yikes < 0) {
                     color.r += 0.2;
                 }
-                if (ang < 1.0/7.0 && ang > 2.0/15.0) {
-                    color.b += 0.2;
-                }
-                if (yikes) {
+                if (yikes > 0) {
                     color.g += 0.2;
                 }
                 for (int i = 0; i < ${angles.length}; i++) {
-                    if (abs(ang - uAngles[i]) < 0.0005 * pow(0.7, float(escaped))) {
+                    if (abs(ang - uAngles[i]) < w) {
                         color = uPalette[i];
                     }
                 }
@@ -342,7 +383,7 @@ function fragmentShaderSource(max_iter, max_period) {
 
         void main(void) {
             if (uMandelbrot) {
-                gl_FragColor = mandelbrot(vec2(0.0, 0.0));
+                gl_FragColor = mandelbrot(zero);
             } else {
                 gl_FragColor = mandelbrot(z0);
             }
@@ -624,19 +665,8 @@ function paintMandelbrot(ctx, stuff, nudgeX, nudgeY) {
 
     // ctx.uniform1iv(stuff.uPowers, uPowersArrays[B]);
     const paletteConcat = [];
-    for (let i = 0; i < angles.length; i++) {
-        let col = [0,0,0];
-        for (let j = 0; j < 5; j++) {
-            let num = angles[i] * ((2<<j) - 1);
-            if (Math.abs(num - Math.round(num)) < 0.01) {
-                col = palette[j];
-                // if (num !== 1) {
-                //     col = [0.5*col[0], 0.5*col[1], 0.5*col[2]];
-                // }
-                break;
-            }
-        }
-        paletteConcat.push(...col);
+    for (let i = 0; i < angles_j.length; i++) {
+        paletteConcat.push(...palette[angles_j[i]-1]);
     }
     ctx.uniform3fv(stuff.uPalette, paletteConcat);
     ctx.uniform1fv(stuff.uAngles, angles);
@@ -815,9 +845,15 @@ function mousewheel() {
         ((x - originX - hwidth) / hwidth) * aspectX,
         (-(y - originY - hheight) / hheight) * aspectY
     ];
-    params.ccenter = add(params.ccenter, scale((1 - sc) * 1.2, mul(xy, params.cscale)));
-    params.cscale[0] *= sc;
-    params.cscale[1] *= sc;
+    if (params.mandelbrot) {
+        params.ccenter = add(params.ccenter, scale((1 - sc) * 1.2, mul(xy, params.cscale)));
+        params.cscale[0] *= sc;
+        params.cscale[1] *= sc;
+    } else {
+        params.z0 = add(params.z0, scale((1 - sc) * 1.2, mul(xy, params.z0Scale)));
+        params.z0Scale = scale(sc, params.z0Scale);
+
+    }
     repaint();
 }
 
