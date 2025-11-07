@@ -18,8 +18,8 @@ const uPowersArrays = {
 }
 
 let params = {
-    ccenter: [0.0, 0.0],
-    cscale: [2.0, 0.0],
+    ccenter: [-0.5, 0.0],
+    cscale: [2.5, 0.0],
 
     c: [-0.0, 0.0],
     z0: [0.0, 0.0],
@@ -125,12 +125,24 @@ function fragmentShaderSource(max_iter, max_period) {
             );
         }
 
-        float angle_bump(vec2 z) {
-            float result = mod(atan(z.y,z.x) / 6.28318530718, 1.0);
-            if (result > 0.5) {
-                result -= 0.1;
-            }
-            return result;
+        float angle_distance(float a, float b) {
+            float twopi = 6.28318530718;
+            float diff = mod(b - a, twopi);
+            return min(diff, twopi - diff);
+        }
+
+        float closest_half_angle(float theta, float target) {
+            float c0 = theta * 0.5;
+            float c1 = c0 + 3.14159265359;
+            float d0 = angle_distance(c0, target);
+            float d1 = angle_distance(c1, target);
+            return d0 < d1 ? c0 : c1;
+        }
+
+        float closest_angle(float c0, float c1, float target) {
+            float d0 = angle_distance(c0, target);
+            float d1 = angle_distance(c1, target);
+            return d0 < d1 ? c0 : c1;
         }
 
         float atan2(vec2 z) {
@@ -219,7 +231,7 @@ function fragmentShaderSource(max_iter, max_period) {
             D z0;
             D z1;
             for (int iteration = 1; iteration < ${max_iter}; iteration++) {
-                z = dmul(dadd_const(dsquare(z),one),cc);
+                z = dadd_const(dmul(dsquare(z),cc), one);
                 if (length(z.value) > uBailout) {
                     escaped = iteration;
                     break;
@@ -236,22 +248,9 @@ function fragmentShaderSource(max_iter, max_period) {
             if (escaped == ${max_iter}) {
                 fiter = 0.0;
             }
-            // fiter = angle_bump(z0.value - vec2(0.0,1.0));
             vec3 color = vec3(fiter, fiter, fiter);
-
-            // if (z0.value.y > 0.0) {
-            //     color.r += 0.1;
-            // }
-
             if (escaped > j+1 && (length(z1.dc) < 0.5)) {
-                if (z0.value.y > 1.0) {
-                    color = vec3(0.5,0.5,1.0);
-                } else {
-                    color = vec3(0.0,0.0,1.0);
-                }
-            }
-            if (escaped > j && abs(z0.value.y - 1.0) < length(z0.dc) * 0.003) {
-                color = vec3(0.5,0.3,0.0);
+                color = vec3(0.5,0.5,1.0);
             }
             if (escaped > j && abs(z0.value.y) < length(z0.dc) * 0.003) {
                 color = vec3(1.0,0.0,0.0);
@@ -259,10 +258,6 @@ function fragmentShaderSource(max_iter, max_period) {
             if (escaped > j+1 && abs(z1.value.y) < length(z1.dc) * 0.003) {
                 color = vec3(0.0,1.0,0.0);
             }
-            // D dots = dadd_const(dsquare(z0), one);
-            // if (escaped > j+1 && length(dots.value) < length(dots.dc) * 0.005) {
-            //     color = vec3(1.0,0.5,0.0);
-            // }
             return vec4(color, 1.0);
         }
 
