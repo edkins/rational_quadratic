@@ -7,9 +7,7 @@
     <script>
 "use strict";
 
-const A = 3;
-const B = 3;
-const showDots = true;
+const showDots = false;
 
 const uPowersArrays = {
     1: [0,1],
@@ -25,7 +23,7 @@ let params = {
 
     c: [-0.0, 0.0],
     z0: [0.0, 0.0],
-    z0Scale: [4.0, 0.0],
+    z0Scale: [1.0, 0.0],
     mandelbrot: true,
 
     color: true,
@@ -43,6 +41,8 @@ let params = {
     plot_points: [],
     plot_colors: [],
     unscaled_points: [],
+
+    j: 3,
 
     frac: {num:0,denom:7}
     // frac: binfrac("","000111")
@@ -77,6 +77,7 @@ function fragmentShaderSource(max_iter, max_period) {
         uniform float uFracNum;
         uniform float uFracDenom;
         uniform vec3 uPalette[${palette.length}];
+        uniform int j;
         const vec2 one = vec2(1.0, 0.0);
 
         vec2 mul(vec2 x, vec2 y) {
@@ -97,6 +98,13 @@ function fragmentShaderSource(max_iter, max_period) {
             return vec2(
                 (x.x * y.x + x.y * y.y) / denom,
                 (x.y * y.x - x.x * y.y) / denom);
+        }
+
+        vec2 recip(vec2 z) {
+            float denom = z.x * z.x + z.y * z.y;
+            return vec2(
+                z.x / denom,
+                -z.y / denom);
         }
 
         vec2 csqrt(vec2 z) {
@@ -201,6 +209,14 @@ function fragmentShaderSource(max_iter, max_period) {
             );
         }
 
+        D drsqrt(D z) {
+            vec2 s = recip(other_csqrt(z.value));
+            return D(
+                s,
+                -0.5 * div(s, z.dc)
+            );
+        }
+
         D dbar(D z) {
             return D(
                 vec2(-z.value.x, z.value.y),
@@ -209,20 +225,43 @@ function fragmentShaderSource(max_iter, max_period) {
         }
 
         vec4 mandelbrot(vec2 actual_z0) {
-            vec2 z = actual_z0;
-            int escaped = -1;
-            vec2 keep = one;
-            vec3 color = vec3(0.0, 0.0, 0.0);
+            D z = D(actual_z0, vec2(0.0,0.0));
+            D cc = D(c, one);
+            int escaped = ${max_iter};
+            D z0;
+            D z1;
             for (int iteration = 1; iteration < ${max_iter}; iteration++) {
-                z = csquare(z) + c;
-                if (length(z) > uBailout) {
+                z = dadd(dsquare(z), cc);
+                if (length(z.value) > uBailout) {
                     escaped = iteration;
                     break;
                 }
+                if (iteration == j) {
+                    z0 = z;
+                }
+                if (iteration == j+1) {
+                    z1 = z;
+                }
             }
 
-            float fiter = sqrt(float(escaped)) / 20.0;
-            return vec4(fiter, fiter, fiter, 1.0);
+            float fiter = log(float(escaped)) / 15.0;
+            if (escaped == ${max_iter}) {
+                fiter = 0.0;
+            }
+            vec3 color = vec3(fiter, fiter, fiter);
+            D sc = drsqrt(cc);
+            z0 = dmul(z0, sc);
+            z1 = dmul(z1, sc);
+            if (escaped > j+1 && (length(z1.dc) < 0.5)) {
+                color = vec3(0.5,0.5,1.0);
+            }
+            if (escaped > j && abs(z0.value.y) < length(z0.dc) * 0.003) {
+                color = vec3(1.0,0.0,0.0);
+            }
+            if (escaped > j+1 && abs(z1.value.y) < length(z1.dc) * 0.003) {
+                color = vec3(0.0,1.0,0.0);
+            }
+            return vec4(color, 1.0);
         }
 
         void main(void) {
@@ -448,6 +487,8 @@ function setup() {
             uFracDenom: ctx.getUniformLocation(shaderProgram, "uFracDenom"),
             uPowers: ctx.getUniformLocation(shaderProgram, "uPowers"),
             uPalette: ctx.getUniformLocation(shaderProgram, "uPalette"),
+            uj: ctx.getUniformLocation(shaderProgram, "j"),
+
         },
         high: {
             shaderProgram: shaderProgramHigh,
@@ -475,6 +516,7 @@ function setup() {
             uFracDenom: ctx.getUniformLocation(shaderProgramHigh, "uFracDenom"),
             uPowers: ctx.getUniformLocation(shaderProgramHigh, "uPowers"),
             uPalette: ctx.getUniformLocation(shaderProgramHigh, "uPalette"),
+            uj: ctx.getUniformLocation(shaderProgramHigh, "j"),
         },
         blit: {
             shaderProgram: shaderProgramBlit,
@@ -507,6 +549,7 @@ function paintMandelbrot(ctx, stuff, nudgeX, nudgeY) {
         paletteConcat.push(...palette[i]);
     }
     ctx.uniform3fv(stuff.uPalette, paletteConcat);
+    ctx.uniform1i(stuff.uj, params.j);
 
     if (params.mandelbrot) {
         ctx.uniform1i(stuff.uMandelbrot, true);
@@ -608,47 +651,30 @@ function paint() {
 }
 
 function mousedown() {
-    const x = event.clientX;
-    const y = event.clientY;
-    const originX = event.target.getBoundingClientRect().left;
-    const originY = event.target.getBoundingClientRect().top;
-    const hwidth = event.target.clientWidth / 2;
-    const hheight = event.target.clientHeight / 2;
-    const aspectX = event.target.clientWidth / Math.min(event.target.clientWidth, event.target.clientHeight);
-    const aspectY = event.target.clientHeight / Math.min(event.target.clientWidth, event.target.clientHeight);
-    const xy = [
-        ((x - originX - hwidth) / hwidth) * aspectX,
-        (-(y - originY - hheight) / hheight) * aspectY
-    ];
-    if (params.mandelbrot) {
-        if (!event.shiftKey) {
-            params.ccenter = add(params.ccenter, mul(xy, params.cscale));
-            params.cscale = mul(params.cscale, [0.25, 0.0]);
-            scale_mandelbrot_dots();
-            repaint();
-        } else {
-            // target(xy[0], xy[1]);
-            params.ccenter = add(params.ccenter, mul(xy, params.cscale));
-            params.cscale = mul(params.cscale, [4, 0.0]);
-            scale_mandelbrot_dots();
-            repaint();
-        }
+    if (event.shiftKey) {
+        params.j = Math.max(1, params.j-1);
+        repaint();
     } else {
-        if (event.shiftKey) {
-            // orbit(xy);
-            params.z0 = add(params.z0, mul(xy, params.z0Scale));
-            params.z0Scale = mul(params.z0Scale, [0.25, 0.0]);
-            gen_dots();
-            repaint();
-        } else {
-            params.mandelbrot = true;
-            params.plot_points = [];
-            repaint();
-        }
+        params.j = params.j + 1;
+        repaint();
     }
 }
 
 function mousemove() {
+    // if (event.buttons === 1) {
+    //     const x = event.clientX;
+    //     const y = event.clientY;
+    //     const originX = event.target.getBoundingClientRect().left;
+    //     const originY = event.target.getBoundingClientRect().top;
+    //     const hwidth = event.target.clientWidth / 2;
+    //     const hheight = event.target.clientHeight / 2;
+        
+    //     let param = (y - originY) / hheight;
+    //     param = Math.pow(param, 3) / 16;
+    //     params.c = [-0.75, param];
+    //     params.mandelbrot = false;
+    //     repaint();
+    // }
 }
 
 function mousewheel() {

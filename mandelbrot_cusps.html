@@ -9,7 +9,7 @@
 
 const A = 3;
 const B = 3;
-const showDots = true;
+const showDots = false;
 
 const uPowersArrays = {
     1: [0,1],
@@ -25,7 +25,7 @@ let params = {
 
     c: [-0.0, 0.0],
     z0: [0.0, 0.0],
-    z0Scale: [4.0, 0.0],
+    z0Scale: [1.0, 0.0],
     mandelbrot: true,
 
     color: true,
@@ -212,17 +212,22 @@ function fragmentShaderSource(max_iter, max_period) {
             vec2 z = actual_z0;
             int escaped = -1;
             vec2 keep = one;
-            vec3 color = vec3(0.0, 0.0, 0.0);
+            bool even = false;
             for (int iteration = 1; iteration < ${max_iter}; iteration++) {
                 z = csquare(z) + c;
-                if (length(z) > uBailout) {
+                if (length(z) > uBailout && even) {
                     escaped = iteration;
                     break;
                 }
+                even = !even;
             }
 
-            float fiter = sqrt(float(escaped)) / 20.0;
-            return vec4(fiter, fiter, fiter, 1.0);
+            float fiter = log(float(escaped)) / 15.0;
+            vec4 color = vec4(fiter, fiter, fiter * 2.0, 1.0);
+            // if (mul(z, vec2(-0.5,0.866)).y > 0.0) {
+            //     color *= 1.2;
+            // }
+            return color;
         }
 
         void main(void) {
@@ -268,8 +273,8 @@ function setup() {
     `;
 
     // Mandelbrot/Julia fragment shader program
-    const fsSource = fragmentShaderSource(200, 32);
-    const fsSourceHigh = fragmentShaderSource(2000, 100);
+    const fsSource = fragmentShaderSource(2000, 32);
+    const fsSourceHigh = fragmentShaderSource(50000, 100);
 
     // Initialize shaders
     const vertexShader = ctx.createShader(ctx.VERTEX_SHADER);
@@ -608,47 +613,23 @@ function paint() {
 }
 
 function mousedown() {
-    const x = event.clientX;
-    const y = event.clientY;
-    const originX = event.target.getBoundingClientRect().left;
-    const originY = event.target.getBoundingClientRect().top;
-    const hwidth = event.target.clientWidth / 2;
-    const hheight = event.target.clientHeight / 2;
-    const aspectX = event.target.clientWidth / Math.min(event.target.clientWidth, event.target.clientHeight);
-    const aspectY = event.target.clientHeight / Math.min(event.target.clientWidth, event.target.clientHeight);
-    const xy = [
-        ((x - originX - hwidth) / hwidth) * aspectX,
-        (-(y - originY - hheight) / hheight) * aspectY
-    ];
-    if (params.mandelbrot) {
-        if (!event.shiftKey) {
-            params.ccenter = add(params.ccenter, mul(xy, params.cscale));
-            params.cscale = mul(params.cscale, [0.25, 0.0]);
-            scale_mandelbrot_dots();
-            repaint();
-        } else {
-            // target(xy[0], xy[1]);
-            params.ccenter = add(params.ccenter, mul(xy, params.cscale));
-            params.cscale = mul(params.cscale, [4, 0.0]);
-            scale_mandelbrot_dots();
-            repaint();
-        }
-    } else {
-        if (event.shiftKey) {
-            // orbit(xy);
-            params.z0 = add(params.z0, mul(xy, params.z0Scale));
-            params.z0Scale = mul(params.z0Scale, [0.25, 0.0]);
-            gen_dots();
-            repaint();
-        } else {
-            params.mandelbrot = true;
-            params.plot_points = [];
-            repaint();
-        }
-    }
 }
 
 function mousemove() {
+    if (event.buttons === 1) {
+        const x = event.clientX;
+        const y = event.clientY;
+        const originX = event.target.getBoundingClientRect().left;
+        const originY = event.target.getBoundingClientRect().top;
+        const hwidth = event.target.clientWidth / 2;
+        const hheight = event.target.clientHeight / 2;
+        
+        let param = (y - originY) / hheight;
+        param = Math.pow(param, 3) / 16;
+        params.c = [-0.75, param];
+        params.mandelbrot = false;
+        repaint();
+    }
 }
 
 function mousewheel() {
