@@ -11,13 +11,13 @@ const showDots = false;
 const showHigh = false;
 
 const MAXIMUM = 20;
-const PMAXIMUM = 4;
+const PMAXIMUM = 3;
 
 function make_angles() {
     let result = [];
     for (let j = 1; j <= PMAXIMUM; j++) {
         let denom = (1<<j) - 1;
-        for (let i = 0; i < denom; i++) {
+        for (let i = 0; i <= denom; i++) {
             let found = false;
             for (let k = 0; k < result.length; k++) {
                 if (result[k][2] * denom === i * result[k][3]) {
@@ -335,8 +335,8 @@ function fragmentShaderSource(max_iter, max_period) {
             D z = D(actual_z0, zero);
             D cc = D(c, one);
             int escaped = ${max_iter};
-            float ang_min = 0.0;
-            float ang_max = 2.0;
+            float ang_min = -0.5;
+            float ang_max = 0.5;
             const int maximum = ${MAXIMUM};
             float denom = 1.0;
             int yikes = 0;
@@ -379,7 +379,7 @@ function fragmentShaderSource(max_iter, max_period) {
             }
             vec4 nearest_tex = texture2D(fracTexture, vec2(0,ang));
             float nearest_frac = nearest_tex.r / nearest_tex.g;
-            if (nearest_frac >= ang_min && nearest_frac <= ang_max && abs(nearest_frac - ang) > w) {
+            if (abs(nearest_frac - ang) <= w) {
                 return texture2D(fracTexture, vec2(1,ang));
             }
             return vec4(color, 1.0);
