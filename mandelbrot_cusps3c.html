@@ -257,8 +257,8 @@ function fragmentShaderSource(max_iter, max_period) {
             ABC abc = ABCFresh();
             for (int iteration = 1; iteration < ${max_iter}; iteration++) {
                 float ang = atan2(z) / 6.28318530718;
-                abc = ABCDouble(abc);
                 abc = ABCUpdate(abc, ang);
+                abc = ABCDouble(abc);
                 denom *= 0.5;
 
                 z = csquare(z) + c;
