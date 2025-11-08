@@ -3,25 +3,39 @@ import numpy as np
 
 MAXITER=50
 BAILOUT=1024
-WIDTH=400
-HEIGHT=300
 
 def main():
-    xmin = -1.5
-    xmax = 0.5
-    ymin = 0
-    ymax = 1.5
-    xs = np.linspace(xmin, xmax, WIDTH, dtype=np.complex128)
-    ys = np.linspace(ymin, ymax, HEIGHT, dtype=np.complex128)
-    cs = (xs.reshape(1,-1) + ys.reshape(-1,1) * 1j).reshape(-1)
-    npixels = cs.shape[0]
+    julia = True
+    if julia:
+        WIDTH=400
+        HEIGHT=400
+        c = -0.06685714285714286 + 0.98j
+        xmin = -1.5
+        xmax = 1.5
+        ymin = -1.5
+        ymax = 1.5
+        xs = np.linspace(xmin, xmax, WIDTH, dtype=np.complex128)
+        ys = np.linspace(ymin, ymax, HEIGHT, dtype=np.complex128)
+        zs = (xs.reshape(1,-1) + ys.reshape(-1,1) * 1j).reshape(-1)
+        cs = np.full_like(zs, c, dtype=np.complex128)
+    else:
+        WIDTH=400
+        HEIGHT=300
+        xmin = -1.5
+        xmax = 0.5
+        ymin = 0
+        ymax = 1.5
+        xs = np.linspace(xmin, xmax, WIDTH, dtype=np.complex128)
+        ys = np.linspace(ymin, ymax, HEIGHT, dtype=np.complex128)
+        cs = (xs.reshape(1,-1) + ys.reshape(-1,1) * 1j).reshape(-1)
+        npixels = cs.shape[0]
 
-    cabs = np.abs(cs)
-    cs[cabs > 2] = cs[cabs > 2] * ((cabs[cabs>2]/2) ** 4)
+        cabs = np.abs(cs)
+        cs[cabs > 2] = cs[cabs > 2] * ((cabs[cabs>2]/2) ** 4)
+        zs = np.array(cs)
 
     stuff = np.zeros((cs.shape[0], MAXITER), dtype=np.complex128)
 
-    zs = np.array(cs)
     still_going = np.ones_like(zs, dtype=bool)
     iters = np.zeros_like(zs, dtype=np.int32)
     for i in range(MAXITER):

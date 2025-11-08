@@ -35,12 +35,6 @@ let params = {
     timer: null,
     last_moved: 0,
     high_count: 0,
-    touchStartA: null,
-    touchStartB: null,
-    touchStartAScale: null,
-    touchStartBScale: null,
-    touchSide: null,
-    touchStartId: null,
     plot_points: [],
     plot_colors: [],
     plot_sizes: [],
@@ -83,6 +77,7 @@ function fragmentShaderSource(max_iter, max_period) {
         uniform vec3 uPalette[${palette.length}];
         uniform int uMaxIter;
         const vec2 one = vec2(1.0, 0.0);
+        const vec2 zero = vec2(0.0, 0.0);
 
         vec2 mul(vec2 x, vec2 y) {
             return vec2(
@@ -217,15 +212,12 @@ function fragmentShaderSource(max_iter, max_period) {
             vec2 z = actual_z0;
             int escaped = -1;
             vec2 keep = one;
-            bool even = true;
-            float theta = 0.0;
             float denom = 4.0;
+            vec2 running = zero;
             for (int iteration = 1; iteration < ${max_iter}; iteration++) {
-                theta = nearest(2.0 * theta, atan2(z) / 6.28318530718);
-                denom *= 0.5;
+                running += z / length(z);
 
                 z = csquare(z) + c;
-                even = !even;
 
                 if (length(z) > uBailout) {
                     escaped = iteration;
@@ -239,21 +231,9 @@ function fragmentShaderSource(max_iter, max_period) {
             if (escaped == -1) {
                 return vec4(0.4, 0.0, 0.0, 1.0);
             }
-            if (length(z) - uBailout < 0.1) {
-                return vec4(0.0, 0.4, 0.0, 1.0);
-            }
-            theta = mod(theta * denom, 1.0);
-            float fiter = 0.2 + log(float(escaped)) / 15.0;
+
+            float theta = mod(atan2(running) / 6.28318530718, 1.0);
             vec4 color = vec4(theta, theta, theta * 2.0, 1.0);
-            // if (even && mul(z, vec2(-0.5,0.866025)).y > 0.0) {
-            //     color *= 2.0;
-            // }
-            // if (!even && mul(z, vec2(-0.5,-0.86625)).y > 0.0) {
-            //     color *= 2.0;
-            // }
-            // if (z.y > 0.0) {
-            //     color *= 2.0;
-            // }
             return color;
         }
 
@@ -683,9 +663,9 @@ function mousemove() {
 }
 
 function set_jmaxiter() {
-    params.jMaxIter = 50000;
+    params.jMaxIter = 500;
     let z = [0,0];
-    for (let i = 0; i < 50000; i++) {
+    for (let i = 0; i < 500; i++) {
         z = add(mul(z,z), params.c);
         if (cnorm(z) > 16) {
             params.jMaxIter = i-1;
@@ -695,16 +675,29 @@ function set_jmaxiter() {
     set_julia_dots([0,0]);
 }
 
+function nearest(course, fine) {
+    let thing = course - fine + 0.5;
+    let floor = Math.floor(thing);
+    let yikes = thing - floor < 0.05 || thing - floor > 0.95;
+    // console.log(course, fine, thing, floor, yikes);
+    return [fine + floor, yikes];
+}
+
 function set_julia_dots(start_z) {
     let z = start_z;
     params.unscaled_points = [];
     params.plot_colors = [];
     params.plot_sizes = [];
-    for (let i = 0; i < 50000; i++) {
+    let theta = 0;
+    let yikes = false;
+    let was_yikes = false;
+    for (let i = 0; i < 500; i++) {
         z = add(mul(z,z), params.c);
+        was_yikes = yikes;
+        [theta,yikes] = nearest(2.0 * theta, Math.atan2(z[1], z[0]) / 6.28318530718);
         params.unscaled_points.push(z);
         // params.plot_colors.push((i == 0) ? [1.0, 0.0] : (i % 2) ? [1,0.5,0] : [0,1,0]);
-        params.plot_colors.push((i == 0) ? [1.0, 0.0] : (i % 3 == 1) ? [1,0.5,0] : (i % 3 == 2) ? [0,1,0] : [1,0,1]);
+        params.plot_colors.push(yikes ? [1.0, 0.0, 0.0] : was_yikes ? [1,0.7,0] : [1,1,0]);
         params.plot_sizes.push(i < 3 ? 16 : 8);
         if (cnorm(z) > 16) {
             break;
@@ -738,58 +731,6 @@ function mousewheel() {
     }
     scale_mandelbrot_dots();
     repaint();
-}
-
-function touchstart() {
-    event.preventDefault();
-    for (const changedTouch of event.changedTouches) {
-        if (touches.size === 0) {
-            const offsetX = event.target.getBoundingClientRect().left;
-            const offsetY = event.target.getBoundingClientRect().top;
-            const x = (changedTouch.pageX - offsetX) / 200 - 1;
-            const y = -(changedTouch.pageY - offsetY) / 200 + 2;
-
-            const aVal = add(params.a, mul([x, y], params.ascale));
-            const bVal = add(params.b, mul([x, y], params.bscale));
-            const cVal = sub([1.0, 0.0], add(aVal, bVal));
-            if (aVal > bVal && aVal > cVal) {
-                params.touchSide = "a";
-            } else if (bVal > cVal) {
-                params.touchSide = "b";
-            } else {
-                params.touchSide = "c";
-            }
-            params.touchStartId = changedTouch.identifier;
-        }
-
-        const touch = {
-            pageX: changedTouch.pageX,
-            pageY: changedTouch.pageY,
-            // startX: changedTouch.pageX,
-            // startY: changedTouch.pageY,
-            identifier: changedTouch.identifier,
-        };
-
-        touches.set(changedTouch.identifier, touch);
-    }
-
-    params.touchStartA = [params.a[0], params.a[1]];
-    params.touchStartB = [params.b[0], params.b[1]];
-    params.touchStartAScale = [params.ascale[0], params.ascale[1]];
-    params.touchStartBScale = [params.bscale[0], params.bscale[1]];
-    for (const touch of touches.values()) {
-        touch.startX = touch.pageX;
-        touch.startY = touch.pageY;
-    }
-}
-
-function touchend() {
-    event.preventDefault();
-    const changedTouch = event.changedTouches[0];
-    const ongoingTouch = touches.get(changedTouch.identifier);
-    const deltaX = changedTouch.pageX - ongoingTouch.pageX;
-    const deltaY = changedTouch.pageY - ongoingTouch.pageY;
-    touches.delete(changedTouch.identifier);
 }
 
 function add(x, y) {
@@ -860,79 +801,6 @@ function cnorm(c) {
 
 function cnorm_squared(c) {
     return c[0] * c[0] + c[1] * c[1];
-}
-
-function touchmove() {
-    event.preventDefault();
-    for (let i = 0; i < event.changedTouches.length; i++) {
-        const changedTouch = event.changedTouches[i];
-        const ongoingTouch = touches.get(changedTouch.identifier);
-        if (ongoingTouch) {
-            ongoingTouch.pageX = changedTouch.pageX;
-            ongoingTouch.pageY = changedTouch.pageY;
-        }
-    }
-
-    if (touches.size === 1) {
-        const offsetX = event.target.getBoundingClientRect().left;
-        const offsetY = event.target.getBoundingClientRect().top;
-
-        const touch0 = touches.get(params.touchStartId);
-        if (!touch0) {
-            return;
-        }
-        let x = (touch0.pageX - touch0.startX) / 200;
-        let y = -(touch0.pageY - touch0.startY) / 200;
-
-        let ascaled = mul(params.touchStartAScale, [x,y]);
-        let bscaled = mul(params.touchStartBScale, [x,y]);
-        if (params.drag === "zoom") {
-            params.a = sub(params.touchStartA, ascaled);
-            params.b = sub(params.touchStartB, bscaled);
-        } else if (params.drag === "distort") {
-            params.a[1] = params.touchStartA[1] - ascaled[1];
-            params.b[1] = params.touchStartB[1] - bscaled[1];
-        }
-
-        // params.ascale[1] = params.touchStartAScale[1] - ascaled[1];
-        // params.bscale[1] = params.touchStartBScale[1] - bscaled[1];
-
-        repaint();
-    }
-    
-    if (touches.size === 2) {
-        const touch0 = touches.get(params.touchStartId);
-        const touch1 = Array.from(touches.values()).find(t => t.identifier !== params.touchStartId);
-        if (!touch0 || !touch1) {
-            return;
-        }
-
-        let x0 = (touch0.pageX - touch0.startX) / 200;
-        let y0 = -(touch0.pageY - touch0.startY) / 200;
-
-        let x1 = (touch1.pageX - touch1.startX) / 200;
-        let y1 = -(touch1.pageY - touch1.startY) / 200;
-
-        let startd = [
-            touch1.startX - touch0.startX,
-            -(touch1.startY - touch0.startY)
-        ];
-        let endd = [
-            touch1.pageX - touch0.pageX,
-            -(touch1.pageY - touch0.pageY)
-        ];
-        let rotate = div(startd, endd);
-
-        let ascaled = mul(params.touchStartAScale, [x0,y0]);
-        let bscaled = mul(params.touchStartBScale, [x0,y0]);
-        if (params.drag === "zoom") {
-            params.a = sub(params.touchStartA, ascaled);
-            params.b = sub(params.touchStartB, bscaled);
-            params.ascale = mul(params.touchStartAScale, rotate);
-            params.bscale = mul(params.touchStartBScale, rotate);
-        }
-        repaint();
-    }
 }
 
 function repaint() {
@@ -1055,189 +923,6 @@ function solve_quadratic(a, b, c) {
     return root1;
 }
 
-class Derivatives {
-    constructor(value, d) {
-        this.value = value;
-        this.d = d;
-    }
-
-    static fromConstant(value) {
-        return new Derivatives(value, [0.0, 0.0]);
-    }
-
-    static fromRealConstant(value) {
-        return Derivatives.fromConstant([value, 0.0]);
-    }
-
-    static fromVar(v) {
-        return new Derivatives(v, [1.0, 0.0]);
-    }
-
-    add(other) {
-        return new Derivatives(
-            add(this.value, other.value),
-            add(this.d, other.d),
-        );
-    }
-
-    sub(other) {
-        return new Derivatives(
-            sub(this.value, other.value),
-            sub(this.d, other.d),
-        );
-    }
-
-    scale(r) {
-        return new Derivatives(
-            scale(r, this.value),
-            scale(r, this.d),
-        );
-    }
-
-    mul(other) {
-        return new Derivatives(
-            mul(this.value, other.value),
-            add(
-                mul(this.d, other.value),
-                mul(this.value, other.d)
-            )
-        );
-    }
-
-    recip() {
-        const f = div([1.0, 0.0], this.value);
-        const f1 = scale(-1, mul(f, f));
-        return new Derivatives(
-            f,
-            mul(f1, this.d)
-        );
-    }
-
-    square() {
-        return this.mul(this);
-    }
-
-    div(other) {
-        return this.mul(other.recip());
-    }
-
-    real_part() {
-        return new RealDerivatives(this.value[0], [this.d[0], -this.d[1]]);
-    }
-
-    imag_part() {
-        return new RealDerivatives(this.value[1], [this.d[1], this.d[0]]);
-    }
-
-    cnorm_squared() {
-        return this.real_part().square().add(this.imag_part().square());
-    }
-}
-
-class RealDerivatives {
-    constructor(value, d) {
-        this.value = value;
-        this.d = d;
-    }
-
-    fromConstant(value) {
-        return new RealDerivatives(value, 0, 0);
-    }
-
-    together_with(other) {
-        // assumes this.value == other.value
-        return new RealDerivatives(this.value, this.d.concat(other.d));
-    }
-
-    add(other) {
-        let d = [];
-        for (let i = 0; i < this.d.length; i++) {
-            d.push(this.d[i] + other.d[i]);
-        }
-        return new RealDerivatives(
-            this.value + other.value,
-            d
-        );
-    }
-
-    mul(other) {
-        let d = [];
-        for (let i = 0; i < this.d.length; i++) {
-            d.push(this.d[i] * other.value + other.d[i] * this.value);
-        }
-        return new RealDerivatives(
-            this.value * other.value,
-            d,
-        )
-    }
-
-    square() {
-        return this.mul(this);
-    }
-
-    sqrt() {
-        let v = Math.sqrt(this.value);
-        let d = [];
-        for (let i = 0; i < this.d.length; i++) {
-            d.push(this.d[i] * 0.5 / v);
-        }
-        return new RealDerivatives(
-            v,
-            d
-        )
-    }
-}
-
-function target(x, y) {
-    params.c = add(mul([x,y], params.cscale), params.ccenter);
-    params.mandelbrot = false;
-    gen_dots();
-    repaint();
-}
-
-function direction_to_go(z) {
-    let Z = Derivatives.fromZ(z);
-    let C = Derivatives.fromC(params.c);
-    for (let i = 0; i < 1000; i++) {
-        Z = Z.square().add(C);
-        if (cnorm(Z.value) > 1000) {
-            break;
-        }
-    }
-    return div(Z.value, Z.dz);
-}
-
-function gen_dots() {
-    let c = params.c;
-    let z = c;
-    let prev = [0,0];
-
-    params.plot_points = [];
-    for (let i = 0; i < 500; i++) {
-        let d = direction_to_go(z);
-        z = add(z, scale(1, d));
-        // let preimage = csqrt(sub(z, c));
-        // if (cnorm(sub(prev,preimage)) > cnorm(add(prev,preimage))) {
-        //     preimage = scale(-1, preimage);
-        // }
-        // prev = preimage;
-        params.plot_points.push(div(sub(z, params.z0), params.z0Scale));
-        if (cnorm(z) > 1000) {
-            break;
-        }
-    }
-}
-
-function mandelbrot_direction_to_go(c,target,target_iter) {
-    let Z = Derivatives.fromZ(c);
-    Z.dc = [1,0];
-    let C = Derivatives.fromC(c);
-    for (let i = 0; i < target_iter; i++) {
-        Z = Z.square().add(C);
-    }
-    return {d:div(sub(Z.value, target), Z.dc), warning:cnorm(Z.value) > 1000};
-}
-
 function scale_mandelbrot_dots() {
     params.plot_points = [];
     for (let i = 0; i < params.unscaled_points.length; i++) {
@@ -1260,333 +945,6 @@ const palette = [
     [0.7,0.5,1],
     [1,0,0],
 ]
-
-function iterate(z, c, n) {
-    for (let i = 0; i < n; i++) {
-        z = z.square().add(c);
-    }
-    return z;
-}
-
-function iterate_dash(z, c, n) {
-    let prod = Derivatives.fromRealConstant(1);
-    for (let i = 0; i < n; i++) {
-        z = z.square().add(c);
-        prod = prod.mul(z.scale(2));
-    }
-    return prod;
-}
-
-function find_root(n, t, z0, c0) {
-    let z = z0;
-    let c = c0;
-    for (let i = 0; i < 1000; i++) {
-        // params.unscaled_points.push(c);
-        // params.plot_colors.push([1,0,0]);
-        let itz = iterate(Derivatives.fromVar(z), Derivatives.fromConstant(c), n).sub(Derivatives.fromVar(z));
-        let itc = iterate(Derivatives.fromConstant(z), Derivatives.fromVar(c), n).sub(Derivatives.fromConstant(z));
-        let fz = iterate_dash(Derivatives.fromVar(z), Derivatives.fromConstant(c), n).sub(Derivatives.fromConstant(t));
-        let fc = iterate_dash(Derivatives.fromConstant(z), Derivatives.fromVar(c), n).sub(Derivatives.fromConstant(t));
-        
-        let lossz = itz.cnorm_squared().add(fz.cnorm_squared());
-        let lossc = itc.cnorm_squared().add(fc.cnorm_squared());
-        let loss = lossz.together_with(lossc).sqrt();
-        // console.log(loss.value, z, c, loss.d, itz.value, fz.value);
-        let epsilon = 0.002;
-        z = [z[0] - epsilon * loss.d[0], z[1] - epsilon * loss.d[1]];
-        c = [c[0] - epsilon * loss.d[2], c[1] - epsilon * loss.d[3]];
-    }
-    return c;
-}
-
-function find_roots(n, num_roots) {
-    let t = [0.0, 0.0];
-    let roots = [];
-    for (let i = 0; i < num_roots; i++) {
-        let c = Derivatives.fromVar([0.0, 2.0]);
-        for (let i = 0; i < 20; i++) {
-            let z = Derivatives.fromRealConstant(0.0);
-            for (let j = 0; j < n; j++) {
-                z = z.square().add(c);
-            }
-
-            for (let j = 0; j < roots.length; j++) {
-                z = z.div(c.sub(Derivatives.fromConstant(roots[j])));
-            }
-            c.value = add(c.value, div(sub(t, z.value), z.d));
-        }
-        if (Number.isNaN(c.value[0]) || Number.isNaN(c.value[1])) {
-            // give up if it's giving NaNs
-            break;
-        }
-        roots.push(c.value);
-    }
-    return roots;
-}
-
-function trace_from(root, n, epsilon) {
-    let c = Derivatives.fromVar(root);
-    let t = [0.0, 0.0];
-    for (let i = 0; i < 200; i++) {
-        params.unscaled_points.push(c.value);
-        params.plot_colors.push(palette[A-1]);
-        let z = Derivatives.fromRealConstant(0.0);
-        for (let j = 0; j < n; j++) {
-            z = z.square().add(c);
-        }
-        c.value = add(c.value, divEpsilon(sub(t, z.value), z.d, 0.0001));
-        const cs = other_csqrt(c.value);
-        const len = cnorm(cs);
-        t = add(t, scale(epsilon / len, cs));
-    }
-}
-
-function gen_mandelbrot_dots2() {
-    params.unscaled_points = [];
-
-    // let roots = find_roots(A, 1<<(A-1));
-    let roots = [];
-    for (let i = 0; i < 10; i++) {
-        roots.push(find_root(A, [1,0], [Math.random()*2-1, Math.random()-.5], [Math.random()*2-1.5, Math.random()-.5]));
-    }
-    console.log("Roots", roots);
-
-    for (let r = 0; r < roots.length; r++) {
-        params.unscaled_points.push(roots[r]);
-        params.plot_colors.push(palette[A-1]);
-        // trace_from(roots[r], A, 0.01);
-        // trace_from(roots[r], A, -0.01);
-    }
-    scale_mandelbrot_dots();
-}
-
-function gen_mandelbrot_dots() {
-    let theta = 0;
-    params.unscaled_points = [];
-    let done = [];
-    for (let j = 0; j <= Math.min(Math.max(A,B)+1, palette.length); j++) {
-        if (j+1 < A || j+1 > B) {
-            continue;
-        }
-        let denom = Math.pow(2, j + 1) - 1;
-        for (let num = 0; num < denom; num++) {
-            if (done.indexOf(num / denom) !== -1) {
-                continue;
-            }
-            done.push(num / denom);
-            const theta = 6.28318530718 * num / denom;
-            let c = scale(50, [Math.cos(theta),Math.sin(theta)]);
-            let target = c;
-            let target_iter = 0;
-            for (let i = 0; i < 2000; i++) {
-                let {d,warning} = mandelbrot_direction_to_go(c,target,target_iter);
-                c = sub(c, d);
-                target = scale(0.9, target);
-                if (cnorm(target) < 50) {
-                    target = mul(target,target);
-                    target_iter += 1;
-                }
-                if (target_iter > j) {
-                    params.unscaled_points.push(c);
-                    params.plot_colors.push(palette[j]);
-                }
-            }
-        }
-    }
-    scale_mandelbrot_dots();
-}
-
-function gen_svg2() {
-    let points = [
-        {num:0, denom:1, j:0, x:0.5, y:1},
-        {num:1, denom:1, j:0, x:0.5, y:-1},
-    ];
-    // created sorted array of values
-    for (let j = 1; j < 8; j++) {
-        let denom = Math.pow(2, j+1) - 1;
-        for (let num = 0; num < denom; num++) {
-            let found = false;
-            for (let i = 0; i < points.length; i++) {
-                if (points[i].num * denom === num * points[i].denom) {
-                    // they're the same
-                    found = true;
-                }
-            }
-            if (!found) {
-                const theta = num / denom * 6.28318530718;
-                points.push({num, denom, j});
-            }
-        }
-    }
-    points.sort((a,b) => a.num * b.denom - b.num * a.denom);
-
-    let stack = [];
-    for (let i = 0; i < points.length; i++) {
-        stack.push(i);
-        if (stack.length >= 2 && points[stack[stack.length-1]].j === points[stack[stack.length-2]].j) {
-            const i0 = stack.pop();
-            const i1 = stack.pop();
-            points[i0].partner = i1;
-            points[i1].partner = i0;
-        }
-    }
-
-    let prevs = {};
-    for (let i = 0; i < points.length; i++) {
-        prevs[points[i].j] = i;
-        if (points[i].j === 0) {
-            continue;
-        }
-        let maximum = -1;
-        for (let j = 0; j < points[i].j; j++) {
-            if (prevs[j] > maximum) {
-                maximum = prevs[j];
-            }
-        }
-        points[i].prev = maximum;
-        if (maximum === -1) {
-            throw `Unexpected ${i}`;
-        }
-    }
-    prevs = undefined;
-
-    let nexts = {};
-    for (let i = points.length-1; i >= 0; i--) {
-        nexts[points[i].j] = i;
-        if (points[i].j === 0) {
-            continue;
-        }
-        let minimum = points.length;
-        for (let j = 0; j < points[i].j; j++) {
-            if (nexts[j] < minimum) {
-                minimum = nexts[j];
-            }
-        }
-        points[i].next = minimum;
-        if (minimum === points.length) {
-            throw `Unexpected ${i}`;
-        }
-    }
-
-    for (let i = 1; i < points.length-1; i++) {
-        const p = points[i];
-        console.log(`${p.num}/${p.denom}: partner=${points[p.partner].num}/${points[p.partner].denom}   prev=${points[p.prev].num}/${points[p.prev].denom}   next=${points[p.next].num}/${points[p.next].denom}`);
-    }
-
-    for (let j = 1; j < 8; j++) {
-        for (let i = 0; i < points.length; i++) {
-            if (points[i].j !== j) {
-                continue;
-            }
-
-            const p = points[points[i].prev];
-            const pp = points[p.partner];
-            const n = points[points[i].next];
-            const np = points[n.partner];
-
-            const ppinch = Math.pow(0.5, points[i].j - p.j);
-            const npinch = Math.pow(0.5, points[i].j - n.j);
-            const x0 = (p.x + pp.x + ppinch * (p.x - pp.x)) / 2;
-            const y0 = (p.y + pp.y + ppinch * (p.y - pp.y)) / 2;
-            const x1 = (n.x + np.x + npinch * (n.x - np.x)) / 2;
-            const y1 = (n.y + np.y + npinch * (n.y - np.y)) / 2;
-            
-            if (p.partner === points[i].next) {
-                const dist = 0.7;
-                if (points[i].partner > i) {
-                    points[i].x = x0 - dist * (y0 - y1);
-                    points[i].y = y0 + dist * (x0 - x1);
-                } else {
-                    points[i].x = x1 + dist * (y1 - y0);
-                    points[i].y = y1 - dist * (x1 - x0);
-                }
-            } else {
-                const dist = 0.5;
-                const x0b = (x0 * 2 + x1) / 3;
-                const y0b = (y0 * 2 + y1) / 3;
-                const x1b = (x1 * 2 + x0) / 3;
-                const y1b = (y1 * 2 + y0) / 3;
-                if (points[i].partner > i) {
-                    points[i].x = x0b - dist * (y0b - y1b);
-                    points[i].y = y0b + dist * (x0b - x1b);
-                } else {
-                    points[i].x = x1b + dist * (y1b - y0b);
-                    points[i].y = y1b - dist * (x1b - x0b);
-                }
-            }
-        }
-    }
-
-    const size = 300;
-    const svg = document.getElementById("svg2");
-    for (let i = 0; i < points.length; i++) {
-        if (points[i].j >= 8) {
-            continue;
-        }
-        if (points[i].partner < i) {
-            continue;
-        }
-        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-        const j = points[i].j;
-        line.setAttribute("x1", 400 + size * points[i].x);
-        line.setAttribute("y1", 400 + size * points[i].y);
-        line.setAttribute("x2", 400 + size * points[points[i].partner].x);
-        line.setAttribute("y2", 400 + size * points[points[i].partner].y);
-        line.setAttribute("stroke", `rgb(${255*palette[j][0]},${255*palette[j][1]},${255*palette[j][2]})`);
-        svg.appendChild(line);
-    }
-}
-
-function gen_svg() {
-    let points = [
-        {num:0, denom:1, j:0, cx: 0, cy: 0, cr: 1, theta: 0},
-        {num:1, denom:1, j:0, cx: 0, cy: 0, cr: 1, theta: 0},
-    ];
-    // created sorted array of values
-    for (let j = 1; j < 8; j++) {
-        let denom = Math.pow(2, j+1) - 1;
-        for (let num = 0; num < denom; num++) {
-            let found = false;
-            for (let i = 0; i < points.length; i++) {
-                if (points[i].num * denom === num * points[i].denom) {
-                    // they're the same
-                    found = true;
-                }
-            }
-            if (!found) {
-                points.push({num, denom, j, cx:0,cy:0,cr:1,theta: num/denom*6.28318530718});
-            }
-        }
-    }
-    points.sort((a,b) => b.num * a.denom - a.num * b.denom);
-
-    const svg = document.getElementById("svg");
-    svg.innerHTML = "";
-    const size = 400;
-
-    let stack = [];
-    for (let i = 0; i < points.length; i++) {
-        stack.push(points[i]);
-        if (stack.length >= 2 && stack[stack.length-1].j === stack[stack.length-2].j) {
-            const p0 = stack.pop();
-            const p1 = stack.pop();
-            const j = p1.j;
-            
-            const x0 = size * (1 + p0.cx + p0.cr * Math.cos(p0.theta));
-            const y0 = size * (1 + p0.cy + p0.cr * Math.sin(p0.theta));
-            const x1 = size * (1 + p1.cx + p1.cr * Math.cos(p1.theta));
-            const y1 = size * (1 + p1.cy + p1.cr * Math.sin(p1.theta));
-            const r = Math.pow(Math.hypot(x1 - x0, y1 - y0)/size, 1.2) * size;
-            const arc = document.createElementNS("http://www.w3.org/2000/svg", "path");
-            arc.setAttribute("d", `M ${x0} ${y0} A ${r} ${r} ${(p0.theta+p1.theta)/2} 0 0 ${x1} ${y1}`);
-            arc.setAttribute("fill", "transparent");
-            arc.setAttribute("stroke-width", "2px");
-            arc.setAttribute("stroke", `rgb(${255*palette[j][0]},${255*palette[j][1]},${255*palette[j][2]})`);
-
-            svg.appendChild(arc);
-        }
-    }
-}
 
 function start() {
     glStuff = setup();
@@ -1612,6 +970,6 @@ button.active {
     <button id="button_zoom" onclick="params.drag='zoom'; update_buttons()">Zoom</button>
     <button id="button_distort" onclick="params.drag='distort'; update_buttons()">Distort</button>
     <br>
-    <canvas id="canvas" width="2000" height="1400" onmousedown="mousedown()" onmousemove="mousemove()" onwheel="mousewheel()" ontouchstart="touchstart()" ontouchmove="touchmove()" ontouchend="touchend()"></canvas>
+    <canvas id="canvas" width="2000" height="1400" onmousedown="mousedown()" onmousemove="mousemove()" onwheel="mousewheel()"></canvas>
 </body>
 </html>
