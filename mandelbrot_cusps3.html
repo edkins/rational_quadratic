@@ -705,6 +705,9 @@ function set_julia_dots(start_z) {
         // params.plot_colors.push((i == 0) ? [1.0, 0.0] : (i % 2) ? [1,0.5,0] : [0,1,0]);
         params.plot_colors.push((i == 0) ? [1.0, 0.0] : (i % 3 == 1) ? [1,0.5,0] : (i % 3 == 2) ? [0,1,0] : [1,0,1]);
         params.plot_sizes.push(i < 3 ? 16 : 8);
+        if (cnorm(z) > 16) {
+            break;
+        }
     }
     scale_mandelbrot_dots();
 }
