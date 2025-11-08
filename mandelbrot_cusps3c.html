@@ -214,9 +214,9 @@ function fragmentShaderSource(max_iter, max_period) {
         }
 
         struct ABC {
-            float A;
-            float B;
-            float C;
+            float A;   // 1/7
+            float B;   // 2/7
+            float C;   // 4/7
         };
 
         ABC ABCFresh() {
@@ -227,29 +227,24 @@ function fragmentShaderSource(max_iter, max_period) {
             return ABC(2.0 * x.C, 2.0 * x.A, 2.0 * x.B);
         }
 
-        float smallest_by(float f0, float f1, float f2, float v0, float v1, float v2) {
-            if (abs(f0) < abs(f1) && abs(f0) < abs(f2)) {
-                return v0;
-            } else if (abs(f1) < abs(f2)) {
-                return v1;
+        float ABCChoose(float target, float a0, float a1) {
+            float dist = mod(target - a0, 1.0);
+            if (dist <= 0.25 || dist >= 0.75) {
+                return a0;
             } else {
-                return v2;
+                return a1;
             }
         }
 
-        float frac_(float x) {
-            return x - floor(x + 0.5);
-        }
-
         ABC ABCUpdate(ABC x, float target) {
-            float f0 = frac_(target - x.A);
-            float f1 = frac_(target - x.B);
-            float f2 = frac_(target - x.C);
+            float fourteenth = 1.0/14.0;
+            float C_ = x.A - fourteenth;
+            float A_ = x.C + fourteenth;
+            float B_ = x.C + 3.0 * fourteenth;
             return ABC(
-                x.A,
-                x.B,
-                x.A + f0
-                // smallest_by(f0,f1,f1,x.A+f0,x.C+f2,x.C+f2)
+                ABCChoose(target, x.A, A_),
+                ABCChoose(target, x.B, B_),
+                ABCChoose(target, x.C, C_)
             );
         }
 
@@ -258,7 +253,7 @@ function fragmentShaderSource(max_iter, max_period) {
             int escaped = -1;
             vec2 keep = one;
             bool even = true;
-            float denom = 1.0;
+            float denom = 2.0;
             ABC abc = ABCFresh();
             for (int iteration = 1; iteration < ${max_iter}; iteration++) {
                 float ang = atan2(z) / 6.28318530718;
@@ -284,9 +279,11 @@ function fragmentShaderSource(max_iter, max_period) {
             if (length(z) - uBailout < 0.1) {
                 return vec4(0.0, 0.4, 0.0, 1.0);
             }
-            float ang0 = mod(abc.C * denom, 1.0);
+            float ang0 = mod(abc.A * denom, 1.0);
+            float ang1 = mod(abc.B * denom, 1.0);
+            float ang2 = mod(abc.C * denom, 1.0);
             float fiter = 0.2 + log(float(escaped)) / 15.0;
-            vec4 color = vec4(ang0, ang0, ang0, 1.0);
+            vec4 color = vec4(ang0, ang1, ang2, 1.0);
             return color;
         }
 
