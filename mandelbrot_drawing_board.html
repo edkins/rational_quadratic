@@ -11,7 +11,7 @@ const showDots = false;
 const showHigh = false;
 
 const MAXIMUM = 20;
-const PMAXIMUM = 3;
+const PMAXIMUM = 5;
 
 function make_angles() {
     let result = [];
@@ -332,25 +332,25 @@ function fragmentShaderSource(max_iter, max_period) {
         }
 
         vec4 mandelbrot(vec2 actual_z0) {
-            D z = D(actual_z0, zero);
+            D z = D(actual_z0, one);
             D cc = D(c, one);
             int escaped = ${max_iter};
-            float ang_min = -0.5;
-            float ang_max = 0.5;
+            float ang_min = -1.;
+            float ang_max = 1.;
             const int maximum = ${MAXIMUM};
             float denom = 1.0;
-            int yikes = 0;
+            bool yikes = false;
             float w = 0.0;
             bool highlight = false;
             for (int iteration = 1; iteration < ${max_iter}; iteration++) {
-                z = dadd(dsquare(z), cc);
                 if (iteration <= maximum) {
                     float candidate = angle(z.value);
                     float n = find_int_between(ang_min - candidate, ang_max - candidate);
-                    if (n < ang_min - candidate || n > ang_max - candidate) {
-                        return vec4(1.0, 0.0, 0.0, 1.0);
-                    }
+                    // if (n < ang_min - candidate || n > ang_max - candidate) {
+                    //     return vec4(1.0, 0.0, 0.0, 1.0);
+                    // }
                     float ang_middle = candidate + n;
+                    yikes = yikes || ang_middle - 0.501 < ang_min || ang_middle + 0.501 > ang_max;
                     ang_min = clamp(ang_middle - 0.5, ang_min, ang_max);
                     ang_max = clamp(ang_middle + 0.5, ang_min, ang_max);
                     ang_min *= 2.0;
@@ -362,6 +362,10 @@ function fragmentShaderSource(max_iter, max_period) {
                     escaped = iteration;
                     break;
                 }
+                z = dadd(dsquare(z), cc);
+            }
+            if (!uMandelbrot) {
+                w = 0.0003;
             }
             float ang = (ang_min + ang_max) * 0.5;
             ang *= denom;
@@ -379,6 +383,9 @@ function fragmentShaderSource(max_iter, max_period) {
             }
             vec4 nearest_tex = texture2D(fracTexture, vec2(0,ang));
             float nearest_frac = nearest_tex.r / nearest_tex.g;
+            if (yikes) {
+                return vec4(0.5, 0.5, 1.0, 1.0);
+            }
             if (abs(nearest_frac - ang) <= w) {
                 return texture2D(fracTexture, vec2(1,ang));
             }
@@ -387,7 +394,7 @@ function fragmentShaderSource(max_iter, max_period) {
 
         void main(void) {
             if (uMandelbrot) {
-                gl_FragColor = mandelbrot(zero);
+                gl_FragColor = mandelbrot(c);
             } else {
                 gl_FragColor = mandelbrot(z0);
             }
