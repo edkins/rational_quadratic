@@ -717,6 +717,7 @@ function set_julia_dots(start_z) {
     let z = start_z;
     params.unscaled_points = [];
     params.plot_colors = [];
+    params.plot_sizes = [];
     for (let i = 0; i < 50000; i++) {
         z = add(mul(z,z), params.c);
         params.unscaled_points.push(z);

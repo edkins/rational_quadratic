@@ -83,6 +83,7 @@ function fragmentShaderSource(max_iter, max_period) {
         uniform vec3 uPalette[${palette.length}];
         uniform int uMaxIter;
         const vec2 one = vec2(1.0, 0.0);
+        const vec2 zero = vec2(0.0, 0.0);
 
         vec2 mul(vec2 x, vec2 y) {
             return vec2(
@@ -169,32 +170,32 @@ function fragmentShaderSource(max_iter, max_period) {
 
         struct D {
             vec2 value;
-            vec2 dc;
+            vec2 d;
         };
 
         D dsquare(D z) {
             return D(
                 mul(z.value, z.value),
-                2.0 * mul(z.value, z.dc));
+                2.0 * mul(z.value, z.d));
         }
 
         D dmul(D x, D y) {
             return D(
                 mul(x.value, y.value),
-                mul(x.value, y.dc) + mul(y.value, x.dc)
+                mul(x.value, y.d) + mul(y.value, x.d)
             );
         }
 
         D dadd(D a, D b) {
             return D(
                 a.value + b.value,
-                a.dc + b.dc);
+                a.d + b.d);
         }
 
         D dadd_const(D a, vec2 c) {
             return D(
                 a.value + c,
-                a.dc
+                a.d
             );
         }
 
@@ -202,32 +203,25 @@ function fragmentShaderSource(max_iter, max_period) {
             vec2 s = csqrt(z.value);
             return D(
                 s,
-                0.5 * div(z.dc, s)
+                0.5 * div(z.d, s)
             );
         }
 
         D dbar(D z) {
             return D(
                 vec2(-z.value.x, z.value.y),
-                z.dc
+                z.d
             );
         }
 
         vec4 mandelbrot(vec2 actual_z0) {
-            vec2 z = actual_z0;
+            D z = D(actual_z0, one);
             int escaped = -1;
             vec2 keep = one;
-            bool even = true;
-            float theta = 0.0;
-            float denom = 4.0;
             for (int iteration = 1; iteration < ${max_iter}; iteration++) {
-                theta = nearest(2.0 * theta, atan2(z) / 6.28318530718);
-                denom *= 0.5;
+                z = dadd_const(dsquare(z), c);
 
-                z = csquare(z) + c;
-                even = !even;
-
-                if (length(z) > uBailout) {
+                if (length(z.value) > uBailout) {
                     escaped = iteration;
                     break;
                 }
@@ -239,22 +233,12 @@ function fragmentShaderSource(max_iter, max_period) {
             if (escaped == -1) {
                 return vec4(0.4, 0.0, 0.0, 1.0);
             }
-            if (length(z) - uBailout < 0.1) {
+            if (length(z.value) - uBailout < 0.1) {
                 return vec4(0.0, 0.4, 0.0, 1.0);
             }
-            theta = mod(theta * denom, 1.0);
-            float fiter = 0.2 + log(float(escaped)) / 15.0;
-            vec4 color = vec4(theta, theta, theta * 2.0, 1.0);
-            // if (even && mul(z, vec2(-0.5,0.866025)).y > 0.0) {
-            //     color *= 2.0;
-            // }
-            // if (!even && mul(z, vec2(-0.5,-0.86625)).y > 0.0) {
-            //     color *= 2.0;
-            // }
-            // if (z.y > 0.0) {
-            //     color *= 2.0;
-            // }
-            return color;
+            vec2 thing = div(z.d, z.value);
+            thing /= length(thing);
+            return vec4(0.5 + 0.4 * thing, 0.5, 1.0);
         }
 
         void main(void) {
@@ -705,7 +689,7 @@ function set_julia_dots(start_z) {
         params.unscaled_points.push(z);
         // params.plot_colors.push((i == 0) ? [1.0, 0.0] : (i % 2) ? [1,0.5,0] : [0,1,0]);
         params.plot_colors.push((i == 0) ? [1.0, 0.0] : (i % 3 == 1) ? [1,0.5,0] : (i % 3 == 2) ? [0,1,0] : [1,0,1]);
-        params.plot_sizes.push(i < 3 ? 16 : 8);
+        params.plot_sizes.push((i < 3) ? 16 : 8);
         if (cnorm(z) > 16) {
             break;
         }

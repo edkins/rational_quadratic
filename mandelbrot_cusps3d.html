@@ -213,15 +213,40 @@ function fragmentShaderSource(max_iter, max_period) {
             );
         }
 
+        struct ABC {
+            float A;
+            float B;
+            float confidence;
+        };
+
+        ABC ABCFresh() {
+            return ABC(0.0, 0.0, 1.0);
+        }
+
+        ABC ABCDouble(ABC x) {
+            return ABC(2.0 * x.A, 2.0 * x.B, x.confidence);
+        }
+
+        ABC ABCUpdate(ABC x, vec2 z) {
+            float target = atan(atan2(z) / 6.28318530718);
+            x.A = nearest(x.A, target);
+            return ABC(
+                x.A,
+                x.B,
+                min(x.confidence, length(z))
+            );
+        }
+
         vec4 mandelbrot(vec2 actual_z0) {
             vec2 z = actual_z0;
             int escaped = -1;
             vec2 keep = one;
             bool even = true;
-            float theta = 0.0;
-            float denom = 4.0;
+            float denom = 2.0;
+            ABC abc = ABCFresh();
             for (int iteration = 1; iteration < ${max_iter}; iteration++) {
-                theta = nearest(2.0 * theta, atan2(z) / 6.28318530718);
+                abc = ABCDouble(abc);
+                abc = ABCUpdate(abc, z);
                 denom *= 0.5;
 
                 z = csquare(z) + c;
@@ -242,18 +267,13 @@ function fragmentShaderSource(max_iter, max_period) {
             if (length(z) - uBailout < 0.1) {
                 return vec4(0.0, 0.4, 0.0, 1.0);
             }
-            theta = mod(theta * denom, 1.0);
+            float ang = mod(abc.A * denom, 1.0);
+            float conf = abc.confidence;
             float fiter = 0.2 + log(float(escaped)) / 15.0;
-            vec4 color = vec4(theta, theta, theta * 2.0, 1.0);
-            // if (even && mul(z, vec2(-0.5,0.866025)).y > 0.0) {
-            //     color *= 2.0;
-            // }
-            // if (!even && mul(z, vec2(-0.5,-0.86625)).y > 0.0) {
-            //     color *= 2.0;
-            // }
-            // if (z.y > 0.0) {
-            //     color *= 2.0;
-            // }
+            vec4 color = vec4(ang, 0.5, 0.5, 1.0);
+            if (conf < 0.65) {
+                color.rgb *= 0.8;
+            }
             return color;
         }
 
@@ -705,7 +725,7 @@ function set_julia_dots(start_z) {
         params.unscaled_points.push(z);
         // params.plot_colors.push((i == 0) ? [1.0, 0.0] : (i % 2) ? [1,0.5,0] : [0,1,0]);
         params.plot_colors.push((i == 0) ? [1.0, 0.0] : (i % 3 == 1) ? [1,0.5,0] : (i % 3 == 2) ? [0,1,0] : [1,0,1]);
-        params.plot_sizes.push(i < 3 ? 16 : 8);
+        params.plot_sizes.push((i < 3) ? 16 : 8);
         if (cnorm(z) > 16) {
             break;
         }
