@@ -264,17 +264,25 @@ function fragmentShaderSource(max_iter, max_period) {
             return 0;
         }
 
-        struct FindResult {
-            float n;
-            bool yikes;
+        struct Range {
+            float minimum;
+            float maximum;
         };
 
-        FindResult find_int_between(float ang_min, float ang_max) {
-            float middle = (ang_min + ang_max) * 0.5;
-            middle += 0.5;
-            float n = floor(middle);
-            bool yikes = middle - n < 0.005 || middle - n > 0.995;
-            return FindResult(n, yikes);
+        Range divide_range(Range r, float candidate) {
+            float middle = (r.minimum + r.maximum) * 0.5;
+            float n = floor(middle - candidate + 0.5);
+            float out_middle = candidate + n;
+            float hsize = (r.maximum - r.minimum) * 0.5;
+            return Range(out_middle - hsize, out_middle + hsize);
+        }
+
+        Range double_range(Range r) {
+            return Range(2.0 * r.minimum, 2.0 * r.maximum);
+        }
+
+        float middle_range(Range r) {
+            return (r.minimum + r.maximum) * 0.5;
         }
 
         struct D {
@@ -343,8 +351,7 @@ function fragmentShaderSource(max_iter, max_period) {
             D z = D(actual_z0, one);
             D cc = D(c, one);
             int escaped = ${max_iter};
-            float ang_min = -1.0;
-            float ang_max = 1.0;
+            Range r = Range(-1.0, 1.0);
             const int maximum = ${MAXIMUM};
             float denom = 1.0;
             bool yikes = false;
@@ -353,16 +360,8 @@ function fragmentShaderSource(max_iter, max_period) {
             for (int iteration = 1; iteration < ${max_iter}; iteration++) {
                 if (iteration <= maximum) {
                     float candidate = angle(z.value);
-                    FindResult fr = find_int_between(ang_min - candidate, ang_max - candidate);
-                    if (fr.n < ang_min - candidate || fr.n > ang_max - candidate) {
-                        return vec4(1.0, 0.0, 0.0, 1.0);
-                    }
-                    float ang_middle = candidate + fr.n;
-                    yikes = yikes || fr.yikes;
-                    ang_min = clamp(ang_middle - 0.55, ang_min, ang_max);
-                    ang_max = clamp(ang_middle + 0.55, ang_min, ang_max);
-                    ang_min *= 2.0;
-                    ang_max *= 2.0;
+                    r = divide_range(r, candidate);
+                    r = double_range(r);
                     denom *= 0.5;
                     w = 0.0003 * length(ucscale) * denom / length(z.value) * length(z.dc);
                 }
@@ -375,11 +374,9 @@ function fragmentShaderSource(max_iter, max_period) {
             if (!uMandelbrot) {
                 w = 0.0003;
             }
-            float ang = (ang_min + ang_max) * 0.5;
+            float ang = middle_range(r);
             ang *= denom;
             ang = mod(ang, 1.0);
-            ang_min = mod(ang_min * denom, 1.0);
-            ang_max = mod(ang_max * denom, 1.0);
 
             float fiter = log(float(escaped)) / 15.0;
             if (escaped == ${max_iter}) {
