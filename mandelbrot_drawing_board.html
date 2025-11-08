@@ -264,9 +264,17 @@ function fragmentShaderSource(max_iter, max_period) {
             return 0;
         }
 
-        float find_int_between(float ang_min, float ang_max) {
+        struct FindResult {
+            float n;
+            bool yikes;
+        };
+
+        FindResult find_int_between(float ang_min, float ang_max) {
             float middle = (ang_min + ang_max) * 0.5;
-            return floor(middle + 0.5);
+            middle += 0.5;
+            float n = floor(middle);
+            bool yikes = middle - n < 0.005 || middle - n > 0.995;
+            return FindResult(n, yikes);
         }
 
         struct D {
@@ -335,8 +343,8 @@ function fragmentShaderSource(max_iter, max_period) {
             D z = D(actual_z0, one);
             D cc = D(c, one);
             int escaped = ${max_iter};
-            float ang_min = -1.;
-            float ang_max = 1.;
+            float ang_min = -1.0;
+            float ang_max = 1.0;
             const int maximum = ${MAXIMUM};
             float denom = 1.0;
             bool yikes = false;
@@ -345,14 +353,14 @@ function fragmentShaderSource(max_iter, max_period) {
             for (int iteration = 1; iteration < ${max_iter}; iteration++) {
                 if (iteration <= maximum) {
                     float candidate = angle(z.value);
-                    float n = find_int_between(ang_min - candidate, ang_max - candidate);
-                    // if (n < ang_min - candidate || n > ang_max - candidate) {
-                    //     return vec4(1.0, 0.0, 0.0, 1.0);
-                    // }
-                    float ang_middle = candidate + n;
-                    yikes = yikes || ang_middle - 0.501 < ang_min || ang_middle + 0.501 > ang_max;
-                    ang_min = clamp(ang_middle - 0.5, ang_min, ang_max);
-                    ang_max = clamp(ang_middle + 0.5, ang_min, ang_max);
+                    FindResult fr = find_int_between(ang_min - candidate, ang_max - candidate);
+                    if (fr.n < ang_min - candidate || fr.n > ang_max - candidate) {
+                        return vec4(1.0, 0.0, 0.0, 1.0);
+                    }
+                    float ang_middle = candidate + fr.n;
+                    yikes = yikes || fr.yikes;
+                    ang_min = clamp(ang_middle - 0.55, ang_min, ang_max);
+                    ang_max = clamp(ang_middle + 0.55, ang_min, ang_max);
                     ang_min *= 2.0;
                     ang_max *= 2.0;
                     denom *= 0.5;
