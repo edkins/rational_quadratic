@@ -4,6 +4,9 @@ import numpy as np
 MAXITER=50
 BAILOUT=1024
 
+def frac(x: np.ndarray) -> np.ndarray:
+    return x - np.floor(x)
+
 def main():
     julia = True
     if julia:
@@ -51,23 +54,27 @@ def main():
 
     iters[still_going] = MAXITER
     stuff[iters == MAXITER,:] = 0
-    # for i in range(MAXITER):
-    #     stuff[iters == i,:i+1] = stuff[iters == i,i::-1]
+    for i in range(MAXITER):
+        stuff[iters == i,:i+1] = stuff[iters == i,i::-1]
 
     fig, ax = plt.subplots(4, 6, squeeze=False, figsize=(25,15))
     pic = np.zeros_like(stuff[:,0], dtype=np.float64)
     for i in range(12):
         py = 2*(i//6)
         px = i%6
-        angles = np.atan2(np.imag(-stuff[:,i]), np.real(-stuff[:,i])) / 6.28318530718
-        ax[py,px].imshow(angles.reshape(HEIGHT,WIDTH), extent=(xmin,xmax,ymin,ymax), vmin=-0.5, vmax=0.5)
+        angles = frac(np.atan2(np.imag(stuff[:,i]), np.real(stuff[:,i])) / 6.28318530718)
+        ax[py,px].imshow(angles.reshape(HEIGHT,WIDTH), extent=(xmin,xmax,ymin,ymax), vmin=0, vmax=1)
         ax[py,px].axis("off")
 
         sel = iters >= i
-        pic *= 2
-        # if i == 3:
-        #     sel &= (pic <= 1.3) | (pic >= 2.3)
-        pic[sel] = np.floor(pic[sel] - angles[sel]) + angles[sel] + 0.5
+        if i == 0:
+            pic = np.array(angles)
+        else:
+            pic[sel] *= 0.5
+            pic[sel & (angles > 0.5)] += 0.5
+
+        # pic = frac(angles * (1<<i))
+
         ax[py+1,px].imshow(pic.reshape(HEIGHT,WIDTH), extent=(xmin,xmax,ymin,ymax))
         ax[py+1,px].axis("off")
     
