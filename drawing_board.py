@@ -51,6 +51,8 @@ def main():
 
         sel = iters >= i
         pic *= 2
+        # if i == 3:
+        #     sel &= (pic <= 1.3) | (pic >= 2.3)
         pic[sel] = np.floor(pic[sel] - angles[sel]) + angles[sel] + 0.5
         ax[py+1,px].imshow(pic.reshape(HEIGHT,WIDTH), extent=(xmin,xmax,ymin,ymax))
         ax[py+1,px].axis("off")
