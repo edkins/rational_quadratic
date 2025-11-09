@@ -10,11 +10,12 @@ if JULIA:
     FIRST_PLOT=22
     INVESTIGATE=True
 else:
-    MAXITER=50
+    MAXITER=70
     MANYPLOTS=False
     FIRST_PLOT=0
     INVESTIGATE=False
 
+FRAC_MAX=9
 BAILOUT=1024
 PALETTE = [
     None,
@@ -69,7 +70,7 @@ def main():
 
 def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
     fractions = []
-    for j in range(1,8):
+    for j in range(1,FRAC_MAX+1):
         denom = (1<<j)-1
         for num in range(denom+1):
             found = False
@@ -95,8 +96,8 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
             ymin = -1.5
             ymax = 1.5
     else:
-        width = 700 if MANYPLOTS else 2800
-        height = 300 if MANYPLOTS else 1200
+        width = 700 if MANYPLOTS else 5600
+        height = 300 if MANYPLOTS else 2400
         xmin = -2.25
         xmax = 1.25
         ymin = 0
@@ -185,9 +186,11 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
         if (i,2) in mapping:
             rgb = pic.reshape(-1,1).repeat(3, axis=1)
             # widths = 0.003 / np.abs(dz)
-            widths = 0.0001 * (0.5**iters) / (np.abs(stuff[:,0])**2) * np.abs(dz)
-            for num,denom,j in fractions:
-                rgb[(pic >= num/denom-widths) & (pic <= num/denom+widths),:] = PALETTE[j]
+            widths = 0.00003 * (0.5**iters) / (np.abs(stuff[:,0])**2) * np.abs(dz)
+            for j in range(FRAC_MAX,0,-1):
+                denom = ((1<<j)-1)
+                fr = frac(pic * denom + 0.5)
+                rgb[(fr >= 0.5-widths*denom) & (fr <= 0.5+widths*denom),:] = PALETTE[j]
 
             py,px = mapping[(i,2)]
             ax[py,px].imshow(rgb.reshape(height,width,3), extent=(xmin,xmax,ymin,ymax))
