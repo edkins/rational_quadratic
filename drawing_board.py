@@ -3,6 +3,8 @@ import numpy as np
 
 MAXITER=50
 BAILOUT=1024
+JULIA=True
+MANYPLOTS=False
 
 PALETTE = [
     None,
@@ -22,7 +24,7 @@ def frac(x: np.ndarray) -> np.ndarray:
 
 def main():
     fractions = []
-    for j in range(1,7):
+    for j in range(1,8):
         denom = (1<<j)-1
         for num in range(denom+1):
             found = False
@@ -35,11 +37,11 @@ def main():
     fractions.sort(key=lambda x:x[0]/x[1])
     # print(fractions)
 
-    julia = False
-    if julia:
-        WIDTH=400
-        HEIGHT=400
-        c = -0.06685714285714286 + 0.98j
+    if JULIA:
+        WIDTH=400 if MANYPLOTS else 2000
+        HEIGHT=400 if MANYPLOTS else 2000
+        # c = -0.06685714285714286 + 0.98j
+        c = -1.025 + 0.260j
         xmin = -1.5
         xmax = 1.5
         ymin = -1.5
@@ -49,14 +51,14 @@ def main():
         zs = (xs.reshape(1,-1) + ys.reshape(-1,1) * 1j).reshape(-1)
         cs = np.full_like(zs, c, dtype=np.complex128)
     else:
-        WIDTH=2800
-        HEIGHT=1200
+        WIDTH=700 if MANYPLOTS else 2800
+        HEIGHT=300 if MANYPLOTS else 1200
         xmin = -2.25
         xmax = 1.25
         ymin = 0
         ymax = 1.5
         xs = np.linspace(xmin, xmax, WIDTH, dtype=np.complex128)
-        ys = np.linspace(ymin, ymax, HEIGHT, dtype=np.complex128)
+        ys = np.linspace(ymax, ymin, HEIGHT, dtype=np.complex128)
         cs = (xs.reshape(1,-1) + ys.reshape(-1,1) * 1j).reshape(-1)
         zs = np.array(cs)
 
@@ -80,35 +82,34 @@ def main():
     for i in range(MAXITER):
         stuff[iters == i,:i+1] = stuff[iters == i,i::-1]
 
-    fig, ax = plt.subplots(1, 1, squeeze=False, figsize=(25,15))
+    if MANYPLOTS:
+        fig, ax = plt.subplots(4, 6, squeeze=False, figsize=(25,15))
+    else:
+        fig, ax = plt.subplots(1, 1, squeeze=False, figsize=(25,15))
     pic = np.zeros_like(stuff[:,0], dtype=np.float64)
     for i in range(MAXITER):
         py = 2*(i//6)
         px = i%6
         angles = frac(np.atan2(np.imag(stuff[:,i]), np.real(stuff[:,i])) / 6.28318530718)
-        # if i < 12:
-        #     ax[py,px].imshow(angles.reshape(HEIGHT,WIDTH), extent=(xmin,xmax,ymin,ymax), vmin=0, vmax=1)
-        #     ax[py,px].axis("off")
+        if MANYPLOTS and i < 12:
+            ax[py,px].imshow(angles.reshape(HEIGHT,WIDTH), extent=(xmin,xmax,ymin,ymax), vmin=0, vmax=1)
+            ax[py,px].axis("off")
 
         sel = iters >= i
         if i == 0:
             pic = np.array(angles)
         else:
-            # pic = npr[(.linspace(0, 1, WIDTH).reshape(1,WIDTH).repeat(HEIGHT, axis=0).reshape(-1)
-            # angles = np.linspace(1, 0, HEIGHT).reshape(HEIGHT,1).repeat(WIDTH, axis=1).reshape(-1)
             pic[sel] = frac(0.5 * (pic + np.floor(2.0 * angles - pic + 0.5))[sel])
 
-        # pic = frac(angles * (1<<i))
-
-        # if i < 12:
-        #     ax[py+1,px].imshow(pic.reshape(HEIGHT,WIDTH), extent=(xmin,xmax,ymin,ymax), vmin=0, vmax=1)
-        #     ax[py+1,px].axis("off")
+        if MANYPLOTS and i < 12:
+            ax[py+1,px].imshow(pic.reshape(HEIGHT,WIDTH), extent=(xmin,xmax,ymin,ymax), vmin=0, vmax=1)
+            ax[py+1,px].axis("off")
     
     rgb = pic.reshape(-1,1).repeat(3, axis=1)
     for num,denom,j in fractions:
         rgb[(pic >= num/denom-0.0001) & (pic <= num/denom+0.0001),:] = PALETTE[j]
-    ax[0,0].imshow(rgb.reshape(HEIGHT,WIDTH,3), extent=(xmin,xmax,ymin,ymax))
-    ax[0,0].axis("off")
+    ax[-1,-1].imshow(rgb.reshape(HEIGHT,WIDTH,3), extent=(xmin,xmax,ymin,ymax))
+    ax[-1,-1].axis("off")
     plt.tight_layout()
     plt.show()
 
