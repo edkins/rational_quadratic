@@ -10,7 +10,7 @@ if JULIA:
     FIRST_PLOT=22
     INVESTIGATE=True
 else:
-    MAXITER=200
+    MAXITER=50
     MANYPLOTS=False
     FIRST_PLOT=0
     INVESTIGATE=False
@@ -31,6 +31,10 @@ PALETTE = [
 
 def frac(x: np.ndarray) -> np.ndarray:
     return x - np.floor(x)
+
+def arg(z: np.ndarray) -> np.ndarray:
+    return np.atan2(np.imag(z), np.real(z))
+
 def main():
     if MANYPLOTS:
         mapping = {
@@ -114,25 +118,32 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
         # c = -1.025 + 0.260j
         # c = -.2 + .826j
         c = -.231 + .771j
-        xs = np.linspace(xmin, xmax, width, dtype=np.complex128)
-        ys = np.linspace(ymax, ymin, height, dtype=np.complex128)
+        xs = np.linspace(xmin, xmax, width, dtype=np.complex64)
+        ys = np.linspace(ymax, ymin, height, dtype=np.complex64)
         zs = (xs.reshape(1,-1) + ys.reshape(-1,1) * 1j).reshape(-1)
-        cs = np.full_like(zs, c, dtype=np.complex128)
+        cs = np.full_like(zs, c, dtype=np.complex64)
+        dz = np.ones_like(zs, dtype=np.complex64)
     else:
-        xs = np.linspace(xmin, xmax, width, dtype=np.complex128)
-        ys = np.linspace(ymax, ymin, height, dtype=np.complex128)
+        xs = np.linspace(xmin, xmax, width, dtype=np.complex64)
+        ys = np.linspace(ymax, ymin, height, dtype=np.complex64)
         cs = (xs.reshape(1,-1) + ys.reshape(-1,1) * 1j).reshape(-1)
         zs = np.array(cs)
+        dz = np.ones_like(zs, dtype=np.complex64)
 
-    cs0 = np.array(cs, dtype=np.complex128)
+    cs0 = np.array(cs, dtype=np.complex64)
 
-    stuff = np.zeros((cs.shape[0], MAXITER), dtype=np.complex128)
+    stuff = np.zeros((cs.shape[0], MAXITER), dtype=np.complex64)
 
     still_going = np.ones_like(zs, dtype=bool)
     iters = np.zeros_like(zs, dtype=np.int32)
     for i in range(MAXITER):
         stuff[still_going,i] = zs
         iters[still_going] = i
+
+        dz[still_going] *= zs * 2.0
+        if not JULIA:
+            dz[still_going] += 1
+
         zs *= zs
         zs += cs
 
@@ -146,15 +157,15 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
     for i in range(MAXITER):
         stuff[iters == i,:i+1] = stuff[iters == i,i::-1]
 
-    pic = np.zeros_like(stuff[:,0], dtype=np.float64)
+    pic = np.zeros_like(stuff[:,0], dtype=np.float32)
 
     for i in range(MAXITER):
         im = np.imag(stuff[:,i] / np.sqrt(cs0))
         re = np.real(stuff[:,i] / np.sqrt(cs0))
         angles = frac((np.atan2(np.sqrt(1 + 0.25/re/re) * im, re) + np.atan2(cs0.imag, cs0.real)/2) / 6.28318530718)
+        # angles = frac(arg(dz) / 6.28318530718)
         if (i,0) in mapping:
             py,px = mapping[(i,0)]
-            # pic1 = frac(angles * (1 + np.float64((iters % 2 == 0))))
             ax[py,px].imshow(angles.reshape(height,width), extent=(xmin,xmax,ymin,ymax), vmin=0, vmax=1)
             ax[py,px].axis("off")
             ax[py,px].set_ylim(full_ymin, full_ymax)
@@ -167,15 +178,16 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
 
         if (i,1) in mapping:
             py,px = mapping[(i,1)]
-            # pic2 = frac(pic * (1 + np.float64((iters % 2 == 0) & sel)))
             ax[py,px].imshow(pic.reshape(height,width), extent=(xmin,xmax,ymin,ymax), vmin=0, vmax=1)
             ax[py,px].axis("off")
             ax[py,px].set_ylim(full_ymin, full_ymax)
 
         if (i,2) in mapping:
             rgb = pic.reshape(-1,1).repeat(3, axis=1)
+            # widths = 0.003 / np.abs(dz)
+            widths = 0.0001 * (0.5**iters) / (np.abs(stuff[:,0])**2) * np.abs(dz)
             for num,denom,j in fractions:
-                rgb[(pic >= num/denom-0.0001) & (pic <= num/denom+0.0001),:] = PALETTE[j]
+                rgb[(pic >= num/denom-widths) & (pic <= num/denom+widths),:] = PALETTE[j]
 
             py,px = mapping[(i,2)]
             ax[py,px].imshow(rgb.reshape(height,width,3), extent=(xmin,xmax,ymin,ymax))
