@@ -2,13 +2,20 @@ from typing import Any
 from matplotlib import pyplot as plt
 import numpy as np
 
-MAXITER=32
-BAILOUT=1024
-JULIA=True
-MANYPLOTS=True
-FIRST_PLOT=22
-INVESTIGATE=False
+JULIA=False
 
+if JULIA:
+    MAXITER=32
+    MANYPLOTS=True
+    FIRST_PLOT=22
+    INVESTIGATE=False
+else:
+    MAXITER=200
+    MANYPLOTS=False
+    FIRST_PLOT=0
+    INVESTIGATE=False
+
+BAILOUT=1024
 PALETTE = [
     None,
     [1,0,0],
@@ -105,8 +112,8 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
     print(f"Drawing tile {tile}/{num_tiles}. ymin={ymin}, ymax={ymax}, height={height}")
 
     if JULIA:
-        # c = -0.06685714285714286 + 0.98j
         c = -1.025 + 0.260j
+        # c = -.2 + .826j
         xs = np.linspace(xmin, xmax, width, dtype=np.complex128)
         ys = np.linspace(ymax, ymin, height, dtype=np.complex128)
         zs = (xs.reshape(1,-1) + ys.reshape(-1,1) * 1j).reshape(-1)
@@ -140,7 +147,10 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
     pic = np.zeros_like(stuff[:,0], dtype=np.float64)
 
     for i in range(MAXITER):
-        angles = frac(np.atan2(0.5 * np.imag(stuff[:,i]), np.real(stuff[:,i])) / 6.28318530718)
+        im = np.imag(stuff[:,i])
+        re = np.real(stuff[:,i])
+        length = np.abs(stuff[:,i])
+        angles = frac(np.atan2((1 - 0.5 / (1 + length * length)) * im, re) / 6.28318530718)
         if (i,0) in mapping:
             py,px = mapping[(i,0)]
             # pic1 = frac(angles * (1 + np.float64((iters % 2 == 0))))
