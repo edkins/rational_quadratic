@@ -8,13 +8,12 @@ if JULIA:
     MAXITER=26
     MANYPLOTS=False
     FIRST_PLOT=22
-    INVESTIGATE=True
 else:
     MAXITER=200
     MANYPLOTS=False
     FIRST_PLOT=0
-    INVESTIGATE=False
 
+ALMOST_BAILOUT=900
 BAILOUT=1024
 PALETTE = [
     None,
@@ -43,13 +42,6 @@ def main():
             (FIRST_PLOT+2,1): (1,2),
             (MAXITER-1,2): (0,3),
             (MAXITER-1,1): (1,3),
-        }
-    elif INVESTIGATE:
-        mapping = {
-            (22,0): (0,0),
-            (22,1): (1,0),
-            (23,0): (0,1),
-            (23,1): (1,1),
         }
     else:
         mapping = {
@@ -81,16 +73,10 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
     if JULIA:
         width = 2000 if MANYPLOTS else 2000
         height = 2000 if MANYPLOTS else 2000
-        if INVESTIGATE:
-            xmin = -5
-            xmax = 5
-            ymin = -5
-            ymax = 5
-        else:
-            xmin = -1.7
-            xmax = 1.7
-            ymin = -1.5
-            ymax = 1.5
+        xmin = -5
+        xmax = 5
+        ymin = -5
+        ymax = 5
     else:
         width = 700 if MANYPLOTS else 2800
         height = 300 if MANYPLOTS else 1200
@@ -119,67 +105,61 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
         zs = (xs.reshape(1,-1) + ys.reshape(-1,1) * 1j).reshape(-1)
         cs = np.full_like(zs, c, dtype=np.complex128)
     else:
+        c = 0
         xs = np.linspace(xmin, xmax, width, dtype=np.complex128)
         ys = np.linspace(ymax, ymin, height, dtype=np.complex128)
         cs = (xs.reshape(1,-1) + ys.reshape(-1,1) * 1j).reshape(-1)
         zs = np.array(cs)
 
-    stuff = np.zeros((cs.shape[0], MAXITER), dtype=np.complex128)
+    z0s = np.array(zs)
 
+    rgb = np.zeros((cs.shape[0], 3), dtype=np.float32)
     still_going = np.ones_like(zs, dtype=bool)
     iters = np.zeros_like(zs, dtype=np.int32)
     for i in range(MAXITER):
-        stuff[still_going,i] = zs
         iters[still_going] = i
         zs *= zs
         zs += cs
+
+        view = np.array(still_going)
+        view[still_going] = (abs(zs) >= BAILOUT) & (np.imag(zs) > 0)
+        rgb[view] = [0.0,0.0,0.5]
 
         ok = abs(zs) < BAILOUT
         zs = zs[ok]
         cs = cs[ok]
         still_going[still_going] = ok
 
+        # view = np.array(still_going)
+        # view[still_going] = abs(zs) >= ALMOST_BAILOUT
+        # rgb[still_going][abs(zs) >= ALMOST_BAILOUT] = [1.0,1.0,1.0]    # This kind of double indexing
+        # rgb[view] = [1.0,1.0,0.0]
+
+    im = np.imag(z0s / np.sqrt(c))
+    re = np.real(z0s / np.sqrt(c))
+    # angles = frac(np.atan2(im * im, re) / 6.28318530718)
+    angles = frac((np.atan2(np.sqrt(1 + 1/re/re) * im, re) + np.atan2(c.imag, c.real)/2) / 6.28318530718)
+    rgb[(angles > 0.99) | (angles < 0.01),1] = 1
+    for i in range(8):
+        rgb[(angles > i/8-0.01) & (angles < i/8+0.01),1] = 1
+
     iters[still_going] = MAXITER
-    stuff[iters == MAXITER,:] = 0
-    for i in range(MAXITER):
-        stuff[iters == i,:i+1] = stuff[iters == i,i::-1]
+    ax[0,0].imshow(rgb.reshape(height,width,3), extent=(xmin,xmax,ymin,ymax))
+    ax[0,0].axis("off")
+    ax[0,0].set_ylim(full_ymin, full_ymax)
 
-    pic = np.zeros_like(stuff[:,0], dtype=np.float64)
+    if JULIA:
+        ys0 = np.linspace(ymin, ymax, 100)
+        xs0 = np.sqrt(1 + ys0 * ys0)
+        
+        # angle = np.atan2(np.imag(c), np.real(c)) / 2
+        # angle = 0
+        angle = 6.28318530718 / 8
 
-    for i in range(MAXITER):
-        im = np.imag(stuff[:,i])
-        re = np.real(stuff[:,i])
-        length = np.abs(stuff[:,i])
-        angles = frac(np.atan2((1 - 0.5 / (1 + length * length)) * im, re) / 6.28318530718)
-        if (i,0) in mapping:
-            py,px = mapping[(i,0)]
-            # pic1 = frac(angles * (1 + np.float64((iters % 2 == 0))))
-            ax[py,px].imshow(angles.reshape(height,width), extent=(xmin,xmax,ymin,ymax), vmin=0, vmax=1)
-            ax[py,px].axis("off")
-            ax[py,px].set_ylim(full_ymin, full_ymax)
+        ys = xs0 * np.sin(angle) + ys0 * np.cos(angle)
+        xs = -xs0 * np.cos(angle) + ys0 * np.sin(angle)
 
-        sel = iters >= i
-        if i == 0:
-            pic = np.array(angles)
-        else:
-            pic[sel] = frac(0.5 * (pic + np.floor(2.0 * angles - pic + 0.5))[sel])
-
-        if (i,1) in mapping:
-            py,px = mapping[(i,1)]
-            # pic2 = frac(pic * (1 + np.float64((iters % 2 == 0) & sel)))
-            ax[py,px].imshow(pic.reshape(height,width), extent=(xmin,xmax,ymin,ymax), vmin=0, vmax=1)
-            ax[py,px].axis("off")
-            ax[py,px].set_ylim(full_ymin, full_ymax)
-
-        if (i,2) in mapping:
-            rgb = pic.reshape(-1,1).repeat(3, axis=1)
-            for num,denom,j in fractions:
-                rgb[(pic >= num/denom-0.0001) & (pic <= num/denom+0.0001),:] = PALETTE[j]
-
-            py,px = mapping[(i,2)]
-            ax[py,px].imshow(rgb.reshape(height,width,3), extent=(xmin,xmax,ymin,ymax))
-            ax[py,px].axis("off")
-            ax[py,px].set_ylim(full_ymin, full_ymax)
+        ax[0,0].plot(xs, ys)
 
 if __name__ == "__main__":
     main()

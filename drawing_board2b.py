@@ -112,8 +112,8 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
     print(f"Drawing tile {tile}/{num_tiles}. ymin={ymin}, ymax={ymax}, height={height}")
 
     if JULIA:
-        # c = -1.025 + 0.260j
-        c = -.2 + .826j
+        c = -1.025 + 0.260j
+        # c = -.2 + .826j
         xs = np.linspace(xmin, xmax, width, dtype=np.complex128)
         ys = np.linspace(ymax, ymin, height, dtype=np.complex128)
         zs = (xs.reshape(1,-1) + ys.reshape(-1,1) * 1j).reshape(-1)
@@ -123,6 +123,8 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
         ys = np.linspace(ymax, ymin, height, dtype=np.complex128)
         cs = (xs.reshape(1,-1) + ys.reshape(-1,1) * 1j).reshape(-1)
         zs = np.array(cs)
+
+    cs0 = np.array(cs)
 
     stuff = np.zeros((cs.shape[0], MAXITER), dtype=np.complex128)
 
@@ -147,10 +149,9 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
     pic = np.zeros_like(stuff[:,0], dtype=np.float64)
 
     for i in range(MAXITER):
-        im = np.imag(stuff[:,i])
-        re = np.real(stuff[:,i])
-        length = np.abs(stuff[:,i])
-        angles = frac(np.atan2((1 - 0.5 / (1 + length * length)) * im, re) / 6.28318530718)
+        im = np.imag(stuff[:,i] / np.sqrt(cs0))
+        re = np.real(stuff[:,i] / np.sqrt(cs0))
+        angles = frac(np.atan2(im, np.sqrt(1 + 1/im/im) * re) / 6.28318530718)
         if (i,0) in mapping:
             py,px = mapping[(i,0)]
             # pic1 = frac(angles * (1 + np.float64((iters % 2 == 0))))
