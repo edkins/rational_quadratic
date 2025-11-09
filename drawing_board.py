@@ -4,11 +4,38 @@ import numpy as np
 MAXITER=50
 BAILOUT=1024
 
+PALETTE = [
+    None,
+    [1,0,0],
+    [0,1,0],
+    [1,1,0],
+    [0,0,1],
+    [1,0,1],
+    [0,1,1],
+    [1,0.5,0],
+    [0.7,0.5,1],
+    [1,0,0],
+]
+
 def frac(x: np.ndarray) -> np.ndarray:
     return x - np.floor(x)
 
 def main():
-    julia = True
+    fractions = []
+    for j in range(1,7):
+        denom = (1<<j)-1
+        for num in range(denom+1):
+            found = False
+            for n2,d2,_ in fractions:
+                if n2*denom == num*d2:
+                    found = True
+                    break
+            if not found:
+                fractions.append((num,denom,j))
+    fractions.sort(key=lambda x:x[0]/x[1])
+    # print(fractions)
+
+    julia = False
     if julia:
         WIDTH=400
         HEIGHT=400
@@ -22,19 +49,15 @@ def main():
         zs = (xs.reshape(1,-1) + ys.reshape(-1,1) * 1j).reshape(-1)
         cs = np.full_like(zs, c, dtype=np.complex128)
     else:
-        WIDTH=400
-        HEIGHT=300
-        xmin = -1.5
-        xmax = 0.5
+        WIDTH=2800
+        HEIGHT=1200
+        xmin = -2.25
+        xmax = 1.25
         ymin = 0
         ymax = 1.5
         xs = np.linspace(xmin, xmax, WIDTH, dtype=np.complex128)
         ys = np.linspace(ymin, ymax, HEIGHT, dtype=np.complex128)
         cs = (xs.reshape(1,-1) + ys.reshape(-1,1) * 1j).reshape(-1)
-        npixels = cs.shape[0]
-
-        cabs = np.abs(cs)
-        cs[cabs > 2] = cs[cabs > 2] * ((cabs[cabs>2]/2) ** 4)
         zs = np.array(cs)
 
     stuff = np.zeros((cs.shape[0], MAXITER), dtype=np.complex128)
@@ -57,29 +80,35 @@ def main():
     for i in range(MAXITER):
         stuff[iters == i,:i+1] = stuff[iters == i,i::-1]
 
-    fig, ax = plt.subplots(4, 6, squeeze=False, figsize=(25,15))
+    fig, ax = plt.subplots(1, 1, squeeze=False, figsize=(25,15))
     pic = np.zeros_like(stuff[:,0], dtype=np.float64)
-    for i in range(12):
+    for i in range(MAXITER):
         py = 2*(i//6)
         px = i%6
         angles = frac(np.atan2(np.imag(stuff[:,i]), np.real(stuff[:,i])) / 6.28318530718)
-        ax[py,px].imshow(angles.reshape(HEIGHT,WIDTH), extent=(xmin,xmax,ymin,ymax), vmin=0, vmax=1)
-        ax[py,px].axis("off")
+        # if i < 12:
+        #     ax[py,px].imshow(angles.reshape(HEIGHT,WIDTH), extent=(xmin,xmax,ymin,ymax), vmin=0, vmax=1)
+        #     ax[py,px].axis("off")
 
         sel = iters >= i
         if i == 0:
             pic = np.array(angles)
         else:
-            pic[sel] *= 0.5
-            pic[sel & (angles > 0.5)] += 0.5
+            # pic = npr[(.linspace(0, 1, WIDTH).reshape(1,WIDTH).repeat(HEIGHT, axis=0).reshape(-1)
+            # angles = np.linspace(1, 0, HEIGHT).reshape(HEIGHT,1).repeat(WIDTH, axis=1).reshape(-1)
+            pic[sel] = frac(0.5 * (pic + np.floor(2.0 * angles - pic + 0.5))[sel])
 
         # pic = frac(angles * (1<<i))
 
-        ax[py+1,px].imshow(pic.reshape(HEIGHT,WIDTH), extent=(xmin,xmax,ymin,ymax))
-        ax[py+1,px].axis("off")
+        # if i < 12:
+        #     ax[py+1,px].imshow(pic.reshape(HEIGHT,WIDTH), extent=(xmin,xmax,ymin,ymax), vmin=0, vmax=1)
+        #     ax[py+1,px].axis("off")
     
-    # ax[3,3].imshow(final_pic.reshape(HEIGHT,WIDTH), extent=(xmin,xmax,ymin,ymax))
-    # ax[3,3].axis("off")
+    rgb = pic.reshape(-1,1).repeat(3, axis=1)
+    for num,denom,j in fractions:
+        rgb[(pic >= num/denom-0.0001) & (pic <= num/denom+0.0001),:] = PALETTE[j]
+    ax[0,0].imshow(rgb.reshape(HEIGHT,WIDTH,3), extent=(xmin,xmax,ymin,ymax))
+    ax[0,0].axis("off")
     plt.tight_layout()
     plt.show()
 
