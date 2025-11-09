@@ -124,7 +124,7 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
 
         view = np.array(still_going)
         view[still_going] = (abs(zs) >= BAILOUT) & (np.imag(zs) > 0)
-        rgb[view] = [0.0,0.0,0.5]
+        rgb[view] = [0.5,0.0,0.0]
 
         ok = abs(zs) < BAILOUT
         zs = zs[ok]
@@ -136,16 +136,19 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
         # rgb[still_going][abs(zs) >= ALMOST_BAILOUT] = [1.0,1.0,1.0]    # This kind of double indexing
         # rgb[view] = [1.0,1.0,0.0]
 
-    im = z0s.imag
-    re = z0s.real
-    r0 = np.sqrt((1 + re * re) / (re * re + im * im))
-    r1 = np.sqrt((1 - im * im) / (re * re + im * im))
-    length = np.abs(z0s)
+    oval_angle = np.sqrt(-c)
+    im = (z0s / oval_angle).imag
+    re = (z0s / oval_angle).real
+    r0sq = 0.5 * (2 + re * re + im * im + np.sqrt((2 - re * re - im * im) ** 2 + 8 * im * im))
+    r1sq = r0sq - 2
+    fudge = 0.25
+    x = re / (np.sqrt(r0sq) + fudge)
+    y = im / (np.sqrt(r1sq) + fudge)
     # angles = frac(np.atan2(im * im, re) / 6.28318530718)
-    angles = frac(np.atan2(im,re) / 6.28318530718)
-    rgb[(angles > 0.99) | (angles < 0.01),1] = 1
-    for i in range(8):
-        rgb[(angles > i/8-0.01) & (angles < i/8+0.01),1] = 1
+    angles = frac((np.atan2(y,x) + np.atan2(oval_angle.imag, oval_angle.real)) / 6.28318530718)
+    rgb[(angles > 0.99) | (angles < 0.01),1] = 0.5
+    for i in range(16):
+        rgb[(angles > i/16-0.003) & (angles < i/16+0.003),1] = 0.5
 
     iters[still_going] = MAXITER
     ax[0,0].imshow(rgb.reshape(height,width,3), extent=(xmin,xmax,ymin,ymax))

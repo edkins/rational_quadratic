@@ -2,7 +2,7 @@ from typing import Any
 from matplotlib import pyplot as plt
 import numpy as np
 
-JULIA=True
+JULIA=False
 
 if JULIA:
     MAXITER=26
@@ -124,7 +124,7 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
         cs = (xs.reshape(1,-1) + ys.reshape(-1,1) * 1j).reshape(-1)
         zs = np.array(cs)
 
-    cs0 = np.array(cs)
+    cs0 = np.array(cs, dtype=np.complex128)
 
     stuff = np.zeros((cs.shape[0], MAXITER), dtype=np.complex128)
 
@@ -149,9 +149,17 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
     pic = np.zeros_like(stuff[:,0], dtype=np.float64)
 
     for i in range(MAXITER):
-        im = np.imag(stuff[:,i] / np.sqrt(cs0))
-        re = np.real(stuff[:,i] / np.sqrt(cs0))
-        angles = frac((np.atan2(np.sqrt(1 + 1/re/re) * im, re) + np.atan2(cs0.imag, cs0.real)/2) / 6.28318530718)
+        oval_angle = np.sqrt(-cs0)
+        im = (stuff[:,i] / oval_angle).imag
+        re = (stuff[:,i] / oval_angle).real
+        r0sq = 0.5 * (2 + re * re + im * im + np.sqrt((2 - re * re - im * im) ** 2 + 8 * im * im))
+        r1sq = r0sq - 2
+        fudge = 0.5
+        x = re / (np.sqrt(r0sq) + fudge)
+        y = im / (np.sqrt(r1sq) + fudge)
+        # angles = frac(np.atan2(im * im, re) / 6.28318530718)
+        angles = frac((np.atan2(y,x) + np.atan2(np.imag(oval_angle), np.real(oval_angle))) / 6.28318530718)
+        # angles = frac((np.atan2(np.sqrt(1 + 1/re/re) * im, re) + np.atan2(cs0.imag, cs0.real)/2) / 6.28318530718)
         if (i,0) in mapping:
             py,px = mapping[(i,0)]
             # pic1 = frac(angles * (1 + np.float64((iters % 2 == 0))))
