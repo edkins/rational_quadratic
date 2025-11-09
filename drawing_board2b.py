@@ -151,7 +151,7 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
     for i in range(MAXITER):
         im = np.imag(stuff[:,i] / np.sqrt(cs0))
         re = np.real(stuff[:,i] / np.sqrt(cs0))
-        angles = frac((np.atan2(np.sqrt(1 + 1/re/re) * im, re) + np.atan2(cs0.imag, cs0.real)/2) / 6.28318530718)
+        angles = frac((np.atan2(np.sqrt(1 + 0.25/re/re) * im, re) + np.atan2(cs0.imag, cs0.real)/2) / 6.28318530718)
         if (i,0) in mapping:
             py,px = mapping[(i,0)]
             # pic1 = frac(angles * (1 + np.float64((iters % 2 == 0))))

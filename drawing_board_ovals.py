@@ -98,9 +98,11 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
     print(f"Drawing tile {tile}/{num_tiles}. ymin={ymin}, ymax={ymax}, height={height}")
 
     if JULIA:
-        c = -1.025 + 0.260j
+        # c = -1.025 + 0.260j
         # c = -.2 + .826j
         # c = -.231 + .771j
+        c = 0.5 + 0j
+
         xs = np.linspace(xmin, xmax, width, dtype=np.complex128)
         ys = np.linspace(ymax, ymin, height, dtype=np.complex128)
         zs = (xs.reshape(1,-1) + ys.reshape(-1,1) * 1j).reshape(-1)
@@ -112,7 +114,8 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
         cs = (xs.reshape(1,-1) + ys.reshape(-1,1) * 1j).reshape(-1)
         zs = np.array(cs)
 
-    z0s = np.array(zs)
+    zs0 = np.array(zs)
+    cs0 = np.array(cs)
 
     rgb = np.zeros((cs.shape[0], 3), dtype=np.float32)
     still_going = np.ones_like(zs, dtype=bool)
@@ -136,16 +139,9 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
         # rgb[still_going][abs(zs) >= ALMOST_BAILOUT] = [1.0,1.0,1.0]    # This kind of double indexing
         # rgb[view] = [1.0,1.0,0.0]
 
-    oval_angle = np.sqrt(-c)
-    im = (z0s / oval_angle).imag
-    re = (z0s / oval_angle).real
-    r0sq = 0.5 * (2 + re * re + im * im + np.sqrt((2 - re * re - im * im) ** 2 + 8 * im * im))
-    r1sq = r0sq - 2
-    fudge = 0.25
-    x = re / (np.sqrt(r0sq) + fudge)
-    y = im / (np.sqrt(r1sq) + fudge)
-    # angles = frac(np.atan2(im * im, re) / 6.28318530718)
-    angles = frac((np.atan2(y,x) + np.atan2(oval_angle.imag, oval_angle.real)) / 6.28318530718)
+    im = np.imag(zs0 / np.sqrt(cs0))
+    re = np.real(zs0 / np.sqrt(cs0))
+    angles = frac((np.atan2(np.sqrt(1 + 10/re/re) * im, re) + np.atan2(cs0.imag, cs0.real)/2) / 6.28318530718)
     rgb[(angles > 0.99) | (angles < 0.01),1] = 0.5
     for i in range(16):
         rgb[(angles > i/16-0.003) & (angles < i/16+0.003),1] = 0.5
@@ -155,7 +151,7 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
     ax[0,0].axis("off")
     ax[0,0].set_ylim(full_ymin, full_ymax)
 
-    if JULIA:
+    if JULIA and False:
         ys0 = np.linspace(ymin, ymax, 100)
         xs0 = np.sqrt(1 + ys0 * ys0)
         
