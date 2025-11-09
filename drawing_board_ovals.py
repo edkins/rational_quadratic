@@ -98,8 +98,9 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
     print(f"Drawing tile {tile}/{num_tiles}. ymin={ymin}, ymax={ymax}, height={height}")
 
     if JULIA:
-        # c = -1.025 + 0.260j
-        c = -.2 + .826j
+        c = -1.025 + 0.260j
+        # c = -.2 + .826j
+        # c = -.231 + .771j
         xs = np.linspace(xmin, xmax, width, dtype=np.complex128)
         ys = np.linspace(ymax, ymin, height, dtype=np.complex128)
         zs = (xs.reshape(1,-1) + ys.reshape(-1,1) * 1j).reshape(-1)
@@ -135,10 +136,13 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
         # rgb[still_going][abs(zs) >= ALMOST_BAILOUT] = [1.0,1.0,1.0]    # This kind of double indexing
         # rgb[view] = [1.0,1.0,0.0]
 
-    im = np.imag(z0s / np.sqrt(c))
-    re = np.real(z0s / np.sqrt(c))
+    im = z0s.imag
+    re = z0s.real
+    r0 = np.sqrt((1 + re * re) / (re * re + im * im))
+    r1 = np.sqrt((1 - im * im) / (re * re + im * im))
+    length = np.abs(z0s)
     # angles = frac(np.atan2(im * im, re) / 6.28318530718)
-    angles = frac((np.atan2(np.sqrt(1 + 1/re/re) * im, re) + np.atan2(c.imag, c.real)/2) / 6.28318530718)
+    angles = frac(np.atan2(im,re) / 6.28318530718)
     rgb[(angles > 0.99) | (angles < 0.01),1] = 1
     for i in range(8):
         rgb[(angles > i/8-0.01) & (angles < i/8+0.01),1] = 1
@@ -153,8 +157,8 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
         xs0 = np.sqrt(1 + ys0 * ys0)
         
         # angle = np.atan2(np.imag(c), np.real(c)) / 2
-        # angle = 0
-        angle = 6.28318530718 / 8
+        angle = 0
+        # angle = 6.28318530718 / 8
 
         ys = xs0 * np.sin(angle) + ys0 * np.cos(angle)
         xs = -xs0 * np.cos(angle) + ys0 * np.sin(angle)

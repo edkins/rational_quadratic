@@ -31,7 +31,6 @@ PALETTE = [
 
 def frac(x: np.ndarray) -> np.ndarray:
     return x - np.floor(x)
-
 def main():
     if MANYPLOTS:
         mapping = {
@@ -112,8 +111,9 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
     print(f"Drawing tile {tile}/{num_tiles}. ymin={ymin}, ymax={ymax}, height={height}")
 
     if JULIA:
-        c = -1.025 + 0.260j
+        # c = -1.025 + 0.260j
         # c = -.2 + .826j
+        c = -.231 + .771j
         xs = np.linspace(xmin, xmax, width, dtype=np.complex128)
         ys = np.linspace(ymax, ymin, height, dtype=np.complex128)
         zs = (xs.reshape(1,-1) + ys.reshape(-1,1) * 1j).reshape(-1)
@@ -151,7 +151,7 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
     for i in range(MAXITER):
         im = np.imag(stuff[:,i] / np.sqrt(cs0))
         re = np.real(stuff[:,i] / np.sqrt(cs0))
-        angles = frac(np.atan2(im, np.sqrt(1 + 1/im/im) * re) / 6.28318530718)
+        angles = frac((np.atan2(np.sqrt(1 + 1/re/re) * im, re) + np.atan2(cs0.imag, cs0.real)/2) / 6.28318530718)
         if (i,0) in mapping:
             py,px = mapping[(i,0)]
             # pic1 = frac(angles * (1 + np.float64((iters % 2 == 0))))
