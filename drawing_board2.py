@@ -6,7 +6,7 @@ MAXITER=32
 BAILOUT=1024
 JULIA=True
 MANYPLOTS=True
-FIRST_PLOT=3
+FIRST_PLOT=22
 INVESTIGATE=False
 
 PALETTE = [
@@ -72,8 +72,8 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
     fractions.sort(key=lambda x:x[0]/x[1])
 
     if JULIA:
-        width = 800 if MANYPLOTS else 2000
-        height = 800 if MANYPLOTS else 2000
+        width = 2000 if MANYPLOTS else 2000
+        height = 2000 if MANYPLOTS else 2000
         if INVESTIGATE:
             xmin = -0.35
             xmax = -0.15
@@ -140,7 +140,7 @@ def do_plot(tile: int, num_tiles: int, ax: Any, mapping: dict):
     pic = np.zeros_like(stuff[:,0], dtype=np.float64)
 
     for i in range(MAXITER):
-        angles = frac(np.atan2(np.imag(stuff[:,i]), np.real(stuff[:,i])) / 6.28318530718)
+        angles = frac(np.atan2(0.5 * np.imag(stuff[:,i]), np.real(stuff[:,i])) / 6.28318530718)
         if (i,0) in mapping:
             py,px = mapping[(i,0)]
             # pic1 = frac(angles * (1 + np.float64((iters % 2 == 0))))
