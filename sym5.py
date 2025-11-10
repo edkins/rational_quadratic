@@ -104,6 +104,16 @@ def factor_test(disc: Poly, expected: Poly) -> tuple[Poly, int]:
             return p, result
     raise NotImplementedError("Too many")
 
+def find_polynomials_with_product(infos: list[Info], prodp: Poly) -> list[Info]:
+    result = []
+    for info in infos:
+        div, rem = prodp.div(info.poly)
+        if rem == 0:
+            result.append(info)
+            prodp = div
+    assert prodp == 1
+    return result
+
 def main():
     MAX = 4
     z,c,x = symbols("z c x")
@@ -139,21 +149,23 @@ def main():
         rd = poly(running, z).diff()
         res = poly(resultant(running - z, rd - x, z), c)
 
-        for fac,_ in factor_list(res)[1]:
-            print(f"resultant factor {fac}")
+        for fac,facdegree in factor_list(res)[1]:
+            print(f"resultant factor [{facdegree}] {fac}")
 
             # corresponding discriminant poly
-            corresponding_dpoly = fac.subs(x,1)
+            corresponding_dpoly = poly(fac.subs(x,1), c)
             found = [info for info in infos if info.period_divides(i) and info.dpoly_for_period(i) == corresponding_dpoly]
+            assert len(found) <= 1
             if len(found) == 0:
-                print(f"\n\nStruggled to find dpoly {factor_list(corresponding_dpoly)[1]}")
-                assert len(found) == 1
-            if found[0].period == i:
+                found2 = find_polynomials_with_product(infos, corresponding_dpoly)
+                assert all(info.period == i for info in found2)
+                print(f" Found dpoly in {len(found2)} pieces: {[f.poly for f in found2]}")
+            elif found[0].period == i:
                 assert found[0].respoly is None
                 found[0].respoly = fac
                 print(f" Setting respoly")
             elif found[0].period < i:
-                print(f" Definitely seen! (period={found[0].period}) ")
+                print(f" Definitely seen dpoly! (period={found[0].period})  -- {factor_list(corresponding_dpoly)[1]}")
                 continue
 
             if 2*i <= MAX:
