@@ -11,7 +11,7 @@ class Info:
     seen_period: int
     degree: int
     status: Literal["seen_in_discriminant","seen_in_resultant","expanded"]
-    parent: Optional[Poly]
+    heritage: str
 
     def expected_degree(self, period: int) -> int:
         # TODO
@@ -141,11 +141,18 @@ def main():
             expected_degree = info.expected_degree(i)
             assert expected_degree == actual_degree
             if expected_degree != 0 or actual_degree != 0:
-                print(f"[{actual_degree}] of {info.poly.as_expr()}")
+                print(f"{info.heritage} [{actual_degree}] of {info.poly.as_expr()}")
 
-        for remaining,deg in factor_list(disc)[1]:
+        fdisc = factor_list(disc)[1]
+        if i == 2:
+            assert len(fdisc) == 0
+        else:
+            assert len(fdisc) == 1
+
+        for remaining,deg in fdisc:
             print(f"Remaining discriminant [{deg}]: {remaining.as_expr()}")
-            infos.append(Info(poly=poly(remaining,c), respoly=None, period=i, seen_period=i, degree=i, parent=None, status="seen_in_discriminant"))
+            assert deg == i
+            infos.append(Info(poly=poly(remaining,c), respoly=None, period=i, seen_period=i, degree=i, heritage=f"p{i}", status="seen_in_discriminant"))
 
         print("---")
 
@@ -206,10 +213,10 @@ def main():
                     if i * degree > MAX:
                         continue
                     px = roots_of_unity_poly(degree, full=False)
-                    print(f" degree = {degree}, roots_of_unity_p = {px}")
+                    print(f" degree = {degree}")
                     expected = product_of_roots_given_x_satisfies(fac, px)
                     assert not any(info.poly == expected for info in infos)
-                    infos.append(Info(poly=expected, respoly=None, period=i*degree, seen_period=i, degree=i*(1+degree), parent=fac, status="seen_in_resultant"))
+                    infos.append(Info(poly=expected, respoly=None, period=i*degree, seen_period=i, degree=i*(1+degree), heritage=f"p{i}.{degree}", status="seen_in_resultant"))
                     print(f"   --> {i*degree}  {expected}")
                         # expecting[i*j*degree].append((expected, expected_degree))
                         # faclist = factor_list(expected)[1]

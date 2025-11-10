@@ -1,3 +1,4 @@
+
 =================
 period = 1
 =================
@@ -9,27 +10,27 @@ Computing resultant...
 Factoring resultant...
 resultant factor [1] 4*c + x**2 - 2*x
  Setting respoly
- degree = 2, roots_of_unity_p = Poly(x + 1, x, domain='ZZ')
+ degree = 2
    --> 2  Poly(4*c + 3, c, domain='ZZ')
- degree = 3, roots_of_unity_p = Poly(x**2 + x + 1, x, domain='ZZ')
+ degree = 3
    --> 3  Poly(16*c**2 + 4*c + 7, c, domain='ZZ')
- degree = 4, roots_of_unity_p = Poly(x**2 + 1, x, domain='ZZ')
+ degree = 4
    --> 4  Poly(16*c**2 - 8*c + 5, c, domain='ZZ')
- degree = 5, roots_of_unity_p = Poly(x**4 + x**3 + x**2 + x + 1, x, domain='ZZ')
+ degree = 5
    --> 5  Poly(256*c**4 + 64*c**3 + 16*c**2 - 36*c + 31, c, domain='ZZ')
- degree = 6, roots_of_unity_p = Poly(x**2 - x + 1, x, domain='ZZ')
+ degree = 6
    --> 6  Poly(16*c**2 - 12*c + 3, c, domain='ZZ')
- degree = 7, roots_of_unity_p = Poly(x**6 + x**5 + x**4 + x**3 + x**2 + x + 1, x, domain='ZZ')
+ degree = 7
    --> 7  Poly(4096*c**6 + 1024*c**5 + 256*c**4 + 64*c**3 + 240*c**2 - 388*c + 127, c, domain='ZZ')
- degree = 8, roots_of_unity_p = Poly(x**4 + 1, x, domain='ZZ')
+ degree = 8
    --> 8  Poly(256*c**4 + 32*c**2 - 64*c + 17, c, domain='ZZ')
- degree = 9, roots_of_unity_p = Poly(x**6 + x**3 + 1, x, domain='ZZ')
+ degree = 9
    --> 9  Poly(4096*c**6 - 1536*c**4 + 448*c**3 + 576*c**2 - 408*c + 73, c, domain='ZZ')
- degree = 10, roots_of_unity_p = Poly(x**4 - x**3 + x**2 - x + 1, x, domain='ZZ')
+ degree = 10
    --> 10  Poly(256*c**4 - 192*c**3 + 144*c**2 - 68*c + 11, c, domain='ZZ')
- degree = 11, roots_of_unity_p = Poly(x**10 + x**9 + x**8 + x**7 + x**6 + x**5 + x**4 + x**3 + x**2 + x + 1, x, domain='ZZ')
+ degree = 11
    --> 11  Poly(1048576*c**10 + 262144*c**9 + 65536*c**8 + 16384*c**7 + 4096*c**6 + 1024*c**5 + 5888*c**4 - 26688*c**3 + 32752*c**2 - 14340*c + 2047, c, domain='ZZ')
- degree = 12, roots_of_unity_p = Poly(x**4 - x**2 + 1, x, domain='ZZ')
+ degree = 12
    --> 12  Poly(256*c**4 + 128*c**3 - 16*c**2 - 56*c + 13, c, domain='ZZ')
 
 =================
@@ -37,22 +38,22 @@ period = 2
 =================
 Calculating discriminant...
 Factoring discriminant...
-[1] of 4*c - 1
-[3] of 4*c + 3
+p1 [1] of 4*c - 1
+p1.2 [3] of 4*c + 3
 ---
 Computing resultant...
 Factoring resultant...
 resultant factor [2] 4*c - x + 4
  Setting respoly
- degree = 2, roots_of_unity_p = Poly(x + 1, x, domain='ZZ')
+ degree = 2
    --> 4  Poly(4*c + 5, c, domain='ZZ')
- degree = 3, roots_of_unity_p = Poly(x**2 + x + 1, x, domain='ZZ')
+ degree = 3
    --> 6  Poly(16*c**2 + 36*c + 21, c, domain='ZZ')
- degree = 4, roots_of_unity_p = Poly(x**2 + 1, x, domain='ZZ')
+ degree = 4
    --> 8  Poly(16*c**2 + 32*c + 17, c, domain='ZZ')
- degree = 5, roots_of_unity_p = Poly(x**4 + x**3 + x**2 + x + 1, x, domain='ZZ')
+ degree = 5
    --> 10  Poly(256*c**4 + 1088*c**3 + 1744*c**2 + 1252*c + 341, c, domain='ZZ')
- degree = 6, roots_of_unity_p = Poly(x**2 - x + 1, x, domain='ZZ')
+ degree = 6
    --> 12  Poly(16*c**2 + 28*c + 13, c, domain='ZZ')
 resultant factor [1] 16*c**2 + 8*c*x + x**2 - 4*x
  Definitely seen dpoly! (period=1)
@@ -62,8 +63,8 @@ period = 3
 =================
 Calculating discriminant...
 Factoring discriminant...
-[1] of 4*c - 1
-[4] of 16*c**2 + 4*c + 7
+p1 [1] of 4*c - 1
+p1.3 [4] of 16*c**2 + 4*c + 7
 Remaining discriminant [3]: 4*c + 7
 ---
 Computing resultant...
@@ -72,11 +73,11 @@ resultant factor [1] 64*c**3 + 24*c*x + x**2 - 8*x
  Definitely seen dpoly! (period=1)
 resultant factor [3] 64*c**3 + 128*c**2 + c*(64 - 8*x) + x**2 - 16*x + 64
  Found dpoly in 2 pieces: [16*c**2 + 4*c + 7, 4*c + 7]
- degree = 2, roots_of_unity_p = Poly(x + 1, x, domain='ZZ')
+ degree = 2
    --> 6  Poly(64*c**3 + 128*c**2 + 72*c + 81, c, domain='ZZ')
- degree = 3, roots_of_unity_p = Poly(x**2 + x + 1, x, domain='ZZ')
+ degree = 3
    --> 9  Poly(4096*c**6 + 16384*c**5 + 25088*c**4 + 26560*c**3 + 22976*c**2 + 9928*c + 5329, c, domain='ZZ')
- degree = 4, roots_of_unity_p = Poly(x**2 + 1, x, domain='ZZ')
+ degree = 4
    --> 12  Poly(4096*c**6 + 16384*c**5 + 24576*c**4 + 24448*c**3 + 20288*c**2 + 8320*c + 4225, c, domain='ZZ')
 
 =================
@@ -84,10 +85,10 @@ period = 4
 =================
 Calculating discriminant...
 Factoring discriminant...
-[1] of 4*c - 1
-[3] of 4*c + 3
-[5] of 16*c**2 - 8*c + 5
-[6] of 4*c + 5
+p1 [1] of 4*c - 1
+p1.2 [3] of 4*c + 3
+p1.4 [5] of 16*c**2 - 8*c + 5
+p2.2 [6] of 4*c + 5
 Remaining discriminant [4]: 64*c**3 + 144*c**2 + 108*c + 135
 ---
 Computing resultant...
@@ -98,9 +99,9 @@ resultant factor [1] 256*c**4 - 32*c**2*x + 64*c*x + x**2 - 16*x
  Definitely seen dpoly! (period=1)
 resultant factor [4] 4096*c**6 + 12288*c**5 + c**4*(256*x + 12288) + c**3*(256*x + 12288) + c**2*(-16*x**2 - 256*x + 8192) - x**3 + 48*x**2 - 768*x + 4096
  Found dpoly in 3 pieces: [16*c**2 - 8*c + 5, 4*c + 5, 64*c**3 + 144*c**2 + 108*c + 135]
- degree = 2, roots_of_unity_p = Poly(x + 1, x, domain='ZZ')
+ degree = 2
    --> 8  Poly(4096*c**6 + 12288*c**5 + 12032*c**4 + 12032*c**3 + 8432*c**2 + 4913, c, domain='ZZ')
- degree = 3, roots_of_unity_p = Poly(x**2 + x + 1, x, domain='ZZ')
+ degree = 3
    --> 12  Poly(16777216*c**12 + 100663296*c**11 + 250609664*c**10 + 398458880*c**9 + 514981888*c**8 + 500498432*c**7 + 386854912*c**6 + 311930880*c**5 + 177431040*c**4 + 108032256*c**3 + 74496240*c**2 + 20346417, c, domain='ZZ')
 
 =================
@@ -108,8 +109,8 @@ period = 5
 =================
 Calculating discriminant...
 Factoring discriminant...
-[1] of 4*c - 1
-[6] of 256*c**4 + 64*c**3 + 16*c**2 - 36*c + 31
+p1 [1] of 4*c - 1
+p1.5 [6] of 256*c**4 + 64*c**3 + 16*c**2 - 36*c + 31
 Remaining discriminant [5]: 4194304*c**11 + 32505856*c**10 + 109051904*c**9 + 223084544*c**8 + 336658432*c**7 + 402464768*c**6 + 379029504*c**5 + 299949056*c**4 + 211327744*c**3 + 120117312*c**2 + 62799428*c + 28629151
 ---
 Computing resultant...
@@ -118,7 +119,7 @@ resultant factor [1] 1024*c**5 - 160*c**2*x + 160*c*x + x**2 - 32*x
  Definitely seen dpoly! (period=1)
 resultant factor [5] 1073741824*c**15 + 8589934592*c**14 + 30064771072*c**13 + c**12*(33554432*x + 64424509440) + c**11*(234881024*x + 100931731456) + c**10*(3145728*x**2 + 671088640*x + 124554051584) + c**9*(11534336*x**2 + 1107296256*x + 122406567936) + c**8*(6291456*x**2 + 1342177280*x + 100931731456) + c**7*(65536*x**3 - 20971520*x**2 + 1241513984*x + 74088185856) + c**6*(294912*x**3 - 44040192*x**2 + 704643072*x + 47244640256) + c**5*(3072*x**4 + 557056*x**3 - 55574528*x**2 + 234881024*x + 27917287424) + c**4*(3072*x**4 + 688128*x**3 - 38797312*x**2 - 33554432*x + 15032385536) + c**3*(-6144*x**4 + 425984*x**3 - 3145728*x**2 - 301989888*x + 5368709120) + c**2*(32*x**5 - 2048*x**4 - 65536*x**3 + 8388608*x**2 - 234881024*x + 2147483648) + c*(-32*x**5 + 5120*x**4 - 327680*x**3 + 10485760*x**2 - 167772160*x + 1073741824) + x**6 - 192*x**5 + 15360*x**4 - 655360*x**3 + 15728640*x**2 - 201326592*x + 1073741824
  Found dpoly in 2 pieces: [256*c**4 + 64*c**3 + 16*c**2 - 36*c + 31, 4194304*c**11 + 32505856*c**10 + 109051904*c**9 + 223084544*c**8 + 336658432*c**7 + 402464768*c**6 + 379029504*c**5 + 299949056*c**4 + 211327744*c**3 + 120117312*c**2 + 62799428*c + 28629151]
- degree = 2, roots_of_unity_p = Poly(x + 1, x, domain='ZZ')
+ degree = 2
    --> 10  Poly(1073741824*c**15 + 8589934592*c**14 + 30064771072*c**13 + 64390955008*c**12 + 100696850432*c**11 + 123886108672*c**10 + 121310806016*c**9 + 99595845632*c**8 + 72825634816*c**7 + 46495662080*c**6 + 27626277888*c**5 + 15026457600*c**4 + 5667121152*c**3 + 2390816736*c**2 + 1252332576*c + 1291467969, c, domain='ZZ')
 
 =================
@@ -126,13 +127,13 @@ period = 6
 =================
 Calculating discriminant...
 Factoring discriminant...
-[1] of 4*c - 1
-[3] of 4*c + 3
-[4] of 16*c**2 + 4*c + 7
-[7] of 16*c**2 - 12*c + 3
-[8] of 16*c**2 + 36*c + 21
-[3] of 4*c + 7
-[9] of 64*c**3 + 128*c**2 + 72*c + 81
+p1 [1] of 4*c - 1
+p1.2 [3] of 4*c + 3
+p1.3 [4] of 16*c**2 + 4*c + 7
+p1.6 [7] of 16*c**2 - 12*c + 3
+p2.3 [8] of 16*c**2 + 36*c + 21
+p3 [3] of 4*c + 7
+p3.2 [9] of 64*c**3 + 128*c**2 + 72*c + 81
 Remaining discriminant [6]: 1099511627776*c**20 + 10445360463872*c**19 + 44873818308608*c**18 + 121736553037824*c**17 + 245929827368960*c**16 + 399107688497152*c**15 + 535883874828288*c**14 + 617743938224128*c**13 + 631168647036928*c**12 + 576952972869632*c**11 + 484537901514752*c**10 + 376633058918400*c**9 + 263974525796352*c**8 + 173544017002496*c**7 + 104985522188288*c**6 + 58905085704192*c**5 + 33837528259584*c**4 + 15555915962496*c**3 + 8558772746832*c**2 + 1167105374568*c + 3063651608241
 ---
 Skipping resultant calculation here.
