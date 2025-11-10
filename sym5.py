@@ -1,5 +1,6 @@
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import Literal, Optional
 from sympy import symbols, factor, factor_list, discriminant, lambdify, nroots, poly, resultant, I, Poly, symmetrize, Symbol, symmetric_poly
 from matplotlib import pyplot as plt
 import numpy as np
@@ -7,15 +8,39 @@ import numpy as np
 @dataclass
 class Info:
     poly: Poly
+    respoly: Optional[Poly]
     period: int
+    seen_period: int
+    status: Literal["seen_in_discriminant","seen_in_resultant","expanded"]
+    parent: Optional[Poly]
+
+    def expected_degree(self, period: int) -> int:
+        # TODO
+        if self.period_divides(period):
+            return 1
+        else:
+            return 0
+    
+    def period_divides(self, period: int) -> bool:
+        return self.period <= period and period % self.period == 0
+
+    def dpoly_for_period(self, period: int) -> Poly:
+        assert self.period_divides(period)
+        if period == self.period:
+            return self.poly
+        assert self.respoly is not None
+        rou = roots_of_unity_poly(period // self.period, full=True)
+        result = product_of_roots_given_x_satisfies(self.respoly, rou)
+        # print(f"{self}.dpoly_for_period[{period}] == {result}")
+        return result
 
 def palette(zs: np.ndarray) -> np.ndarray:
     ang = np.atan2(np.imag(zs), np.real(zs)) / 6.28318530718
     ang -= np.floor(ang)
     return np.stack([ang,ang,ang],axis=2)
 
-def symmetrize_with_coeffs(coef: Poly, roots: list[Symbol], coefs_decreasing: list[Poly]) -> Poly:
-    expr, probably0, defs = symmetrize(coef, formal=True)
+def symmetrize_with_coeffs(main_poly: Poly, roots: list[Symbol], coefs_decreasing: list[Poly]) -> Poly:
+    expr, probably0, defs = symmetrize(main_poly, formal=True)
     assert probably0 == 0
     result = expr
     sign = -1
@@ -54,12 +79,14 @@ def product_of_roots_given_x_satisfies(fac: Poly, xp: Poly) -> Poly:
         result += co * (c ** pow)
     return poly(result, c)
 
-def roots_of_unity_poly(n):
+def roots_of_unity_poly(n, full:bool):
     x = symbols("x")
     result = poly(x ** n - 1)
+    if full:
+        return result
     for m in range(1, n):
         if n % m == 0:
-            p = roots_of_unity_poly(m)
+            p = roots_of_unity_poly(m, full=False)
             result, rem = result.div(p)
             assert rem == 0
     return result
@@ -81,72 +108,100 @@ def main():
     MAX = 4
     z,c,x = symbols("z c x")
     running = z
+    infos:list[Info] = []
 
     fig, ax = plt.subplots(2, 3)
     xs = np.linspace(-2, 2, 400, dtype=np.complex64)
     ys = np.linspace(-2, 2, 400, dtype=np.complex64)
     cs = (xs.reshape(1,-1) + ys.reshape(-1,1) * 1j)
 
-    expecting = defaultdict(list)
-    seen_list = []
     for i in range(1, MAX+1):
         print()
         print("=================")
         print(f"i = {i}")
         print("=================")
-        
+
         running = running * running + c
 
-        new_seen_list = []
         disc = poly(discriminant(running - z, z), c)
-        for expected, expected_degree in expecting[i]:
-            disc, actual_degree = factor_test(disc, expected)
-            print(f"[{expected_degree} vs {actual_degree}] of {expected}")
-            new_seen_list.append(expected)
+        for info in infos:
+            disc, actual_degree = factor_test(disc, info.poly)
+            expected_degree = info.expected_degree(i)
+            if expected_degree != 0 or actual_degree != 0:
+                print(f"[{expected_degree} vs {actual_degree}] of {info.poly}")
 
         for remaining,deg in factor_list(disc)[1]:
             print(f"Remaining discriminant [{deg}]: {remaining}")
-            new_seen_list.append(remaining)
+            infos.append(Info(poly=poly(remaining,c), respoly=None, period=i, seen_period=i, parent=None, status="seen_in_discriminant"))
+
         print("---")
 
-        if 2*i <= MAX:
-            rd = poly(running, z).diff()
-            res = resultant(running - z, rd - x, z)
+        rd = poly(running, z).diff()
+        res = poly(resultant(running - z, rd - x, z), c)
 
-            for fac,_ in factor_list(res)[1]:
-                print(f"resultant factor {fac}")
+        for fac,_ in factor_list(res)[1]:
+            print(f"resultant factor {fac}")
 
-                # check if we've seen it
-                seen_any = False
-                seen_all = True
-                for dfac,_ in factor_list(fac.subs(x,1))[1]:
-                    seen_this = dfac in seen_list
-                    if seen_this:
-                        seen_any = True
-                    else:
-                        seen_all = False
-                    print(f" dfac, seen={seen_this}:  {dfac}")
+            # corresponding discriminant poly
+            corresponding_dpoly = fac.subs(x,1)
+            found = [info for info in infos if info.period_divides(i) and info.dpoly_for_period(i) == corresponding_dpoly]
+            if len(found) == 0:
+                print(f"\n\nStruggled to find dpoly {factor_list(corresponding_dpoly)[1]}")
+                assert len(found) == 1
+            if found[0].period == i:
+                assert found[0].respoly is None
+                found[0].respoly = fac
+                print(f" Setting respoly")
+            elif found[0].period < i:
+                print(f" Definitely seen! (period={found[0].period}) ")
+                continue
 
-                print(f" Seen any: {seen_any}. Seen all: {seen_all}")
-                if seen_all:
-                    continue
+            if 2*i <= MAX:
+                # # check if we've seen it
+                # seen_any = False
+                # seen_all = True
+                # for dfac,_ in factor_list(fac.subs(x,1))[1]:
+                #     dfacp = poly(dfac,c)
+                #     seen_this = [info for info in infos if info.poly == dfacp]
+                #     assert len(seen_this) == 1  # should have at least seen it in our own discriminant
 
-                for degree in range(1, MAX+1):
+                #     if seen_this[0].status == "expanded":
+                #         seen_any = True
+                #         print(f" dfac, seen={seen_this}")
+                #     elif seen_this[0].status == "seen_in_discriminant":
+                #         assert seen_this[0].period == i
+                #         seen_all = False
+                #         print(f" dfac, unseen[d]={dfacp}")
+                #     elif seen_this[0].status == "seen_in_resultant":
+                #         assert seen_this[0].seen_period < i
+                #         print(f" dfac, unseen[r]={dfacp}")
+                #         seen_all = False
+                #     else:
+                #         assert False
+
+                # print(f" Expanded any: {seen_any}. Expanded all: {seen_all}")
+                # if seen_all:
+                #     continue
+
+                for degree in range(2, MAX+1):
                     if i * degree > MAX:
                         continue
-                    px = roots_of_unity_poly(degree)
+                    px = roots_of_unity_poly(degree, full=False)
                     print(f" degree = {degree}, roots_of_unity_p = {px}")
                     expected = product_of_roots_given_x_satisfies(fac, px)
-                    expected_degree = i + degree if degree > 1 else i
-                    for j in range(1, MAX+1):
-                        if i * j * degree <= i or i * j * degree > MAX:
-                            continue
-                        expecting[i*j*degree].append((expected, expected_degree))
-                        print(f"   --> {i*j*degree} [{expected_degree}]  {expected}")
-                        faclist = factor_list(expected)[1]
-                        if len(faclist) > 1:
-                            print(f"   It factors!!   {faclist}")
-        seen_list += new_seen_list
+                    assert not any(info.poly == expected for info in infos)
+                    infos.append(Info(poly=expected, respoly=None, period=i*degree, seen_period=i, parent=fac, status="seen_in_resultant"))
+                    print(f"   --> {i*degree}  {expected}")
+                        # expecting[i*j*degree].append((expected, expected_degree))
+                        # faclist = factor_list(expected)[1]
+                        # if len(faclist) > 1:
+                        #     print(f"   It factors!!   {faclist}")
+
+            for info in infos:
+                if info.period == i:
+                    assert info.status in ["seen_in_discriminant", "seen_in_resultant"]
+                    info.status = "expanded"
+                        
 
     # plt.show()
 
