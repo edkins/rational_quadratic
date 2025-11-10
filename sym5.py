@@ -1,8 +1,6 @@
-from collections import defaultdict
 from dataclasses import dataclass
 from typing import Literal, Optional
 from sympy import symbols, factor, factor_list, discriminant, lambdify, nroots, poly, resultant, I, Poly, symmetrize, Symbol, symmetric_poly
-from matplotlib import pyplot as plt
 import numpy as np
 
 @dataclass
@@ -11,13 +9,14 @@ class Info:
     respoly: Optional[Poly]
     period: int
     seen_period: int
+    degree: int
     status: Literal["seen_in_discriminant","seen_in_resultant","expanded"]
     parent: Optional[Poly]
 
     def expected_degree(self, period: int) -> int:
         # TODO
         if self.period_divides(period):
-            return 1
+            return self.degree
         else:
             return 0
     
@@ -115,42 +114,50 @@ def find_polynomials_with_product(infos: list[Info], prodp: Poly) -> list[Info]:
     return result
 
 def main():
-    MAX = 4
+    MAX = 12
+    DMAX = 6
+    RMAX = 5
     z,c,x = symbols("z c x")
     running = z
     infos:list[Info] = []
 
-    fig, ax = plt.subplots(2, 3)
     xs = np.linspace(-2, 2, 400, dtype=np.complex64)
     ys = np.linspace(-2, 2, 400, dtype=np.complex64)
     cs = (xs.reshape(1,-1) + ys.reshape(-1,1) * 1j)
 
-    for i in range(1, MAX+1):
+    for i in range(1, DMAX+1):
         print()
         print("=================")
-        print(f"i = {i}")
+        print(f"period = {i}")
         print("=================")
 
         running = running * running + c
 
+        print("Calculating discriminant...")
         disc = poly(discriminant(running - z, z), c)
+        print("Factoring discriminant...")
         for info in infos:
             disc, actual_degree = factor_test(disc, info.poly)
             expected_degree = info.expected_degree(i)
+            assert expected_degree == actual_degree
             if expected_degree != 0 or actual_degree != 0:
-                print(f"[{expected_degree} vs {actual_degree}] of {info.poly}")
+                print(f"[{actual_degree}] of {info.poly.as_expr()}")
 
         for remaining,deg in factor_list(disc)[1]:
-            print(f"Remaining discriminant [{deg}]: {remaining}")
-            infos.append(Info(poly=poly(remaining,c), respoly=None, period=i, seen_period=i, parent=None, status="seen_in_discriminant"))
+            print(f"Remaining discriminant [{deg}]: {remaining.as_expr()}")
+            infos.append(Info(poly=poly(remaining,c), respoly=None, period=i, seen_period=i, degree=i, parent=None, status="seen_in_discriminant"))
 
         print("---")
 
+        if i > RMAX:
+            print("Skipping resultant calculation here.")
+            continue
         rd = poly(running, z).diff()
+        print("Computing resultant...")
         res = poly(resultant(running - z, rd - x, z), c)
-
+        print("Factoring resultant...")
         for fac,facdegree in factor_list(res)[1]:
-            print(f"resultant factor [{facdegree}] {fac}")
+            print(f"resultant factor [{facdegree}] {fac.as_expr()}")
 
             # corresponding discriminant poly
             corresponding_dpoly = poly(fac.subs(x,1), c)
@@ -159,13 +166,13 @@ def main():
             if len(found) == 0:
                 found2 = find_polynomials_with_product(infos, corresponding_dpoly)
                 assert all(info.period == i for info in found2)
-                print(f" Found dpoly in {len(found2)} pieces: {[f.poly for f in found2]}")
+                print(f" Found dpoly in {len(found2)} pieces: {[f.poly.as_expr() for f in found2]}")
             elif found[0].period == i:
                 assert found[0].respoly is None
                 found[0].respoly = fac
                 print(f" Setting respoly")
             elif found[0].period < i:
-                print(f" Definitely seen dpoly! (period={found[0].period})  -- {factor_list(corresponding_dpoly)[1]}")
+                print(f" Definitely seen dpoly! (period={found[0].period})")
                 continue
 
             if 2*i <= MAX:
@@ -202,7 +209,7 @@ def main():
                     print(f" degree = {degree}, roots_of_unity_p = {px}")
                     expected = product_of_roots_given_x_satisfies(fac, px)
                     assert not any(info.poly == expected for info in infos)
-                    infos.append(Info(poly=expected, respoly=None, period=i*degree, seen_period=i, parent=fac, status="seen_in_resultant"))
+                    infos.append(Info(poly=expected, respoly=None, period=i*degree, seen_period=i, degree=i*(1+degree), parent=fac, status="seen_in_resultant"))
                     print(f"   --> {i*degree}  {expected}")
                         # expecting[i*j*degree].append((expected, expected_degree))
                         # faclist = factor_list(expected)[1]
@@ -213,9 +220,6 @@ def main():
                 if info.period == i:
                     assert info.status in ["seen_in_discriminant", "seen_in_resultant"]
                     info.status = "expanded"
-                        
-
-    # plt.show()
 
 if __name__ == "__main__":
     main()
