@@ -7,10 +7,11 @@
     <script>
 "use strict";
 
-const A = 3;
-const B = 3;
-const showDots = true;
+const NUMERATOR = 9;
+const NUMERATOR2 = 10;
+const DENOMINATOR = 31;
 
+const showDots = true;
 const uPowersArrays = {
     1: [0,1],
     2: [0,0,1],
@@ -1172,39 +1173,37 @@ function gen_mandelbrot_dots() {
 
     params.pathway = [];
 
-    for (let j = 2; j <= 2; j++) {
-        let denom = Math.pow(2, j + 1) - 1;
-        for (let num = 1; num <= 2; num++) {
-            if (done.indexOf(num / denom) !== -1) {
-                continue;
+    let denom = DENOMINATOR;
+    for (let num of [NUMERATOR,NUMERATOR2]) {
+        if (done.indexOf(num / denom) !== -1) {
+            continue;
+        }
+        done.push(num / denom);
+        let target_ang = num;
+        let target_lens = [];
+        for (let i = 0; i < 10; i++) {
+            target_lens[i] = Math.exp(Math.log(1e3) * Math.pow(2, i/10));
+        }
+        let target_len = target_lens.length - 1;
+        let c = scale(target_lens[target_len], [Math.cos(6.28318530718 * target_ang / denom),Math.sin(6.28318530718 * target_ang / denom)]);
+        let target_iter = 0;
+        for (let i = 0; i < 4000; i++) {
+            let target = scale(target_lens[target_len], [Math.cos(6.28318530718 * target_ang / denom),Math.sin(6.28318530718 * target_ang / denom)]);
+            let {d,warning} = mandelbrot_direction_to_go(c,target,target_iter);
+            c = sub(c, d);
+            target_len -= 1;
+            if (target_len < 0) {
+                target_len = target_lens.length - 1;
+                target_ang = (target_ang * 2) % denom;
+                target_iter += 1;
             }
-            done.push(num / denom);
-            let target_ang = num;
-            let target_lens = [];
-            for (let i = 0; i < 10; i++) {
-                target_lens[i] = Math.exp(Math.log(1e3) * Math.pow(2, i/10));
-            }
-            let target_len = target_lens.length - 1;
-            let c = scale(target_lens[target_len], [Math.cos(6.28318530718 * target_ang / denom),Math.sin(6.28318530718 * target_ang / denom)]);
-            let target_iter = 0;
-            for (let i = 0; i < 4000; i++) {
-                let target = scale(target_lens[target_len], [Math.cos(6.28318530718 * target_ang / denom),Math.sin(6.28318530718 * target_ang / denom)]);
-                let {d,warning} = mandelbrot_direction_to_go(c,target,target_iter);
-                c = sub(c, d);
-                target_len -= 1;
-                if (target_len < 0) {
-                    target_len = target_lens.length - 1;
-                    target_ang = (target_ang * 2) % denom;
-                    target_iter += 1;
-                }
-                if (true) {
-                    params.unscaled_points.push(c);
-                    params.plot_colors.push(palette[j]);
-                    if (num === 1) {
-                        params.pathway.push(c);
-                    } else if (num === 2) {
-                        params.pathway2.push(c);
-                    }
+            if (true) {
+                params.unscaled_points.push(c);
+                params.plot_colors.push((num === NUMERATOR) ? [1,0,0] : [0,1,0]);
+                if (num === NUMERATOR) {
+                    params.pathway.push(c);
+                } else if (num === NUMERATOR2) {
+                    params.pathway2.push(c);
                 }
             }
         }
