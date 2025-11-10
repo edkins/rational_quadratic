@@ -32,6 +32,15 @@ class Info:
         result = product_of_roots_given_x_satisfies(self.respoly, rou)
         # print(f"{self}.dpoly_for_period[{period}] == {result}")
         return result
+    
+    def rpoly_for_period(self, period: int) -> Poly:
+        assert self.period_divides(period)
+        assert self.respoly is not None
+        if period == self.period:
+            return self.respoly
+        c,x,y = symbols("c x y")
+        roy = poly(x ** (period // self.period) - y, x)
+        return poly(product_of_roots_given_x_satisfies(self.respoly, roy).subs(y, x), c)
 
 def palette(zs: np.ndarray) -> np.ndarray:
     ang = np.atan2(np.imag(zs), np.real(zs)) / 6.28318530718
@@ -183,6 +192,9 @@ def main():
             elif found[0].period < i:
                 print(f" Definitely seen dpoly! (period={found[0].period})")
                 assert facdegree == found[0].period
+                found_rpoly = found[0].rpoly_for_period(i)
+                assert found_rpoly == fac, (found_rpoly, fac)
+                print(f" Definitely seen rpoly!")
                 continue
 
             if 2*i <= MAX:
