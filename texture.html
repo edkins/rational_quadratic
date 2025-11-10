@@ -23,10 +23,10 @@ let params = {
     ccenter: [-0.5, 0.0],
     cscale: [2.5, 0.0],
 
-    c: [-0.0, 0.0],
+    c: [-0.10508675081249999, 0.6503121278247359],
     z0: [0.0, 0.0],
     z0Scale: [1.1, 0.0],
-    mandelbrot: true,
+    mandelbrot: false,
 
     color: true,
     drag: "zoom",
@@ -211,22 +211,16 @@ function fragmentShaderSource(max_iter, max_period) {
         vec4 mandelbrot(vec2 actual_z0) {
             vec2 z = actual_z0;
             int escaped = -1;
-            vec2 keep = one;
-            bool even = false;
             for (int iteration = 1; iteration < ${max_iter}; iteration++) {
-                z = csquare(z) + c;
-                if (length(z) > uBailout && even) {
+                if (length(z) > 0.75) {
                     escaped = iteration;
                     break;
                 }
-                even = !even;
+                z = csquare(z) + c;
             }
 
             float fiter = log(float(escaped)) / 15.0;
-            vec4 color = vec4(fiter, fiter, fiter * 2.0, 1.0);
-            // if (mul(z, vec2(-0.5,0.866)).y > 0.0) {
-            //     color *= 1.2;
-            // }
+            vec4 color = vec4(0.5 + 0.5 * z, fiter * 2.0, 1.0);
             return color;
         }
 
@@ -242,7 +236,7 @@ function fragmentShaderSource(max_iter, max_period) {
         
 function setup() {
     const canvas = document.getElementById("canvas");
-    const ctx = canvas.getContext("webgl");
+    const ctx = canvas.getContext("webgl2");
     ctx.clearColor(1.0, 0.9, 0.9, 1.0);
 
     // Mandelbrot vertex shader program
@@ -391,14 +385,19 @@ function setup() {
     ctx.bindBuffer(ctx.ARRAY_BUFFER, vertexBuffer);
     ctx.bufferData(ctx.ARRAY_BUFFER, vertices, ctx.STATIC_DRAW);
 
+    console.log(ctx.getSupportedExtensions());
+    const ext = ctx.getExtension("EXT_color_buffer_float");
+    console.log(ext);
+
     // Create texture to hold low-iteration Mandelbrot image
     const fbWidth = ctx.canvas.width;
     const fbHeight = ctx.canvas.height;
     const destTexture = ctx.createTexture();
     ctx.bindTexture(ctx.TEXTURE_2D, destTexture);
-    ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGBA, fbWidth, fbHeight, 0, ctx.RGBA, ctx.UNSIGNED_BYTE, null);
-    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MIN_FILTER, ctx.LINEAR);
-    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MAG_FILTER, ctx.LINEAR);
+    // ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGB, fbWidth, fbHeight, 0, ctx.RGB, ctx.UNSIGNED_BYTE, null);
+    ctx.texStorage2D(ctx.TEXTURE_2D, 1, ctx.RGBA32F, fbWidth, fbHeight)
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MIN_FILTER, ctx.NEAREST);
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MAG_FILTER, ctx.NEAREST);
     ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_S, ctx.CLAMP_TO_EDGE);
     ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_T, ctx.CLAMP_TO_EDGE);
     ctx.bindTexture(ctx.TEXTURE_2D, null);
@@ -560,7 +559,7 @@ function draw_dots(ctx, stuff) {
 }
 
 function paint() {
-    const ctx = document.getElementById("canvas").getContext("webgl");
+    const ctx = document.getElementById("canvas").getContext("webgl2");
     if (params.high_count === 0) {
         ctx.bindFramebuffer(ctx.FRAMEBUFFER, glStuff.main.framebuffer);
         ctx.viewport(0, 0, glStuff.main.fbWidth, glStuff.main.fbHeight);
@@ -617,19 +616,43 @@ function mousedown() {
 
 function mousemove() {
     if (event.buttons === 1) {
-        const x = event.clientX;
-        const y = event.clientY;
-        const originX = event.target.getBoundingClientRect().left;
-        const originY = event.target.getBoundingClientRect().top;
+        let dx = event.movementX;
+        let dy = event.movementY;
         const hwidth = event.target.clientWidth / 2;
         const hheight = event.target.clientHeight / 2;
+        const aspectX = event.target.clientWidth / Math.min(event.target.clientWidth, event.target.clientHeight);
+        const aspectY = event.target.clientHeight / Math.min(event.target.clientWidth, event.target.clientHeight);
         
-        let param = (x - originX) / hwidth - 1;
-        param = Math.pow(param, 3) / 16;
-        params.c = [-0.125 + param, 0.649519052838329 + 2 * param * param];
-        params.mandelbrot = false;
+        dx *= -aspectX / hwidth;
+        dy *= aspectY / hheight;
+        params.z0 = add(params.z0, mul([dx,dy], params.z0Scale));
+        scale_mandelbrot_dots();
         repaint();
     }
+}
+
+function gen_julia_dots() {
+    params.unscaled_points = [];
+    params.plot_colors = [];
+    const period = 88;
+    let z = [0,0];
+    for (let i = 0; i < 5000; i++) {
+        z = add(mul(z,z), params.c);
+        params.unscaled_points.push(z);
+        params.plot_colors.push([1,0,0]);
+        if (cnorm(z) > 16) {
+            break;
+        }
+    }
+
+    z = [0,0];
+    for (let i = 0; i < 1000; i++) {
+        params.unscaled_points.push(z);
+        params.plot_colors.push((i % period < 3) ? [0,1,0] : [.7,.7,0]);
+        z = scale(1, other_csqrt(sub(z, params.c)));
+
+    }
+    scale_mandelbrot_dots();
 }
 
 function mousewheel() {
@@ -939,17 +962,6 @@ function move(deltaX, deltaY) {
     }
 }
 
-function update_buttons() {
-    document.getElementById("button_distort").classList.remove("active");
-    document.getElementById("button_zoom").classList.remove("active");
-    if (params.drag === "distort") {
-        document.getElementById("button_distort").classList.add("active");
-    } else if (params.drag === "zoom") {
-        document.getElementById("button_zoom").classList.add("active");
-    }
-}
-
-
 function csqrt(z) {
     const r = Math.sqrt(cnorm(z));
     const theta = Math.atan2(z[1], z[0]);
@@ -1160,7 +1172,11 @@ function mandelbrot_direction_to_go(c,target,target_iter) {
 function scale_mandelbrot_dots() {
     params.plot_points = [];
     for (let i = 0; i < params.unscaled_points.length; i++) {
-        params.plot_points.push(div(sub(params.unscaled_points[i], params.ccenter), params.cscale));
+        if (params.mandelbrot) {
+            params.plot_points.push(div(sub(params.unscaled_points[i], params.ccenter), params.cscale));
+        } else {
+            params.plot_points.push(div(sub(params.unscaled_points[i], params.z0), params.z0Scale));
+        }
     }
 }
 
@@ -1505,10 +1521,7 @@ function gen_svg() {
 
 function start() {
     glStuff = setup();
-    update_buttons();
-    if (showDots) {
-        gen_mandelbrot_dots2();
-    }
+    gen_julia_dots();
     paint();
 }
 
@@ -1524,8 +1537,6 @@ button.active {
     </style>
 </head>
 <body>
-    <button id="button_zoom" onclick="params.drag='zoom'; update_buttons()">Zoom</button>
-    <button id="button_distort" onclick="params.drag='distort'; update_buttons()">Distort</button>
     <br>
     <canvas id="canvas" width="2000" height="1400" onmousedown="mousedown()" onmousemove="mousemove()" onwheel="mousewheel()" ontouchstart="touchstart()" ontouchmove="touchmove()" ontouchend="touchend()"></canvas>
 </body>

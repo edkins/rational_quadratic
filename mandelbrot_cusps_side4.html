@@ -9,7 +9,7 @@
 
 const A = 3;
 const B = 3;
-const showDots = false;
+const showDots = true;
 
 const uPowersArrays = {
     1: [0,1],
@@ -23,7 +23,8 @@ let params = {
     ccenter: [-0.5, 0.0],
     cscale: [2.5, 0.0],
 
-    c: [-0.0, 0.0],
+    c: [0.0, 0.0],
+    c2: [0.0, 0.0],
     z0: [0.0, 0.0],
     z0Scale: [1.1, 0.0],
     mandelbrot: true,
@@ -71,6 +72,7 @@ function fragmentShaderSource(max_iter, max_period) {
     return `
         precision highp float;
         varying vec2 c;
+        uniform vec2 uc2;
         varying vec2 z0;
         uniform bool uMandelbrot;
         uniform float uBailout;
@@ -208,33 +210,26 @@ function fragmentShaderSource(max_iter, max_period) {
             );
         }
 
-        vec4 mandelbrot(vec2 actual_z0) {
+        float mandelbrot(vec2 actual_z0, vec2 actual_c) {
             vec2 z = actual_z0;
             int escaped = -1;
-            vec2 keep = one;
-            bool even = false;
             for (int iteration = 1; iteration < ${max_iter}; iteration++) {
-                z = csquare(z) + c;
-                if (length(z) > uBailout && even) {
+                z = csquare(z) + actual_c;
+                if (length(z) > uBailout) {
                     escaped = iteration;
                     break;
                 }
-                even = !even;
             }
 
-            float fiter = log(float(escaped)) / 15.0;
-            vec4 color = vec4(fiter, fiter, fiter * 2.0, 1.0);
-            // if (mul(z, vec2(-0.5,0.866)).y > 0.0) {
-            //     color *= 1.2;
-            // }
-            return color;
+            return log(float(escaped)) / 15.0;
         }
 
         void main(void) {
             if (uMandelbrot) {
-                gl_FragColor = mandelbrot(vec2(0.0, 0.0));
+                float fiter = mandelbrot(vec2(0.0, 0.0), c);
+                gl_FragColor = vec4(fiter, fiter, fiter, 1.0);
             } else {
-                gl_FragColor = mandelbrot(z0);
+                gl_FragColor = vec4(mandelbrot(z0, c), mandelbrot(z0, uc2), 0.5, 1.0);
             }
         }
     `;
@@ -273,7 +268,7 @@ function setup() {
     `;
 
     // Mandelbrot/Julia fragment shader program
-    const fsSource = fragmentShaderSource(2000, 32);
+    const fsSource = fragmentShaderSource(500, 32);
     const fsSourceHigh = fragmentShaderSource(50000, 100);
 
     // Initialize shaders
@@ -435,6 +430,7 @@ function setup() {
             uz0: ctx.getUniformLocation(shaderProgram, "uz0"),
             uz0Scale: ctx.getUniformLocation(shaderProgram, "uz0Scale"),
             uc: ctx.getUniformLocation(shaderProgram, "uc"),
+            uc2: ctx.getUniformLocation(shaderProgram, "uc2"),
             ucscale: ctx.getUniformLocation(shaderProgram, "ucscale"),
             uBailout: ctx.getUniformLocation(shaderProgram, "uBailout"),
             uBailin: ctx.getUniformLocation(shaderProgram, "uBailin"),
@@ -461,6 +457,7 @@ function setup() {
             uz0: ctx.getUniformLocation(shaderProgramHigh, "uz0"),
             uz0Scale: ctx.getUniformLocation(shaderProgramHigh, "uz0Scale"),
             uc: ctx.getUniformLocation(shaderProgramHigh, "uc"),
+            uc2: ctx.getUniformLocation(shaderProgramHigh, "uc2"),
             uascale: ctx.getUniformLocation(shaderProgramHigh, "uascale"),
             ucscale: ctx.getUniformLocation(shaderProgramHigh, "ucscale"),
             uBailout: ctx.getUniformLocation(shaderProgramHigh, "uBailout"),
@@ -522,6 +519,7 @@ function paintMandelbrot(ctx, stuff, nudgeX, nudgeY) {
         ctx.uniform1i(stuff.uMandelbrot, false);
         ctx.uniform2f(stuff.uz0Scale, params.z0Scale[0], params.z0Scale[1]);
         ctx.uniform2f(stuff.uc, params.c[0], params.c[1]);
+        ctx.uniform2f(stuff.uc2, params.c2[0], params.c2[1]);
         ctx.uniform2f(stuff.ucscale, 0.0, 0.0);
         ctx.uniform2f(stuff.uz0, params.z0[0], params.z0[1]);
     }
@@ -557,6 +555,18 @@ function draw_dots(ctx, stuff) {
         ctx.uniform3f(stuff.uColor, col[0], col[1], col[2]);
         ctx.drawArrays(ctx.POINTS, 0, 1);
     }
+}
+
+function paintDots() {
+    const ctx = document.getElementById("canvas").getContext("webgl");
+    ctx.bindFramebuffer(ctx.FRAMEBUFFER, null);
+    ctx.viewport(0, 0, ctx.canvas.width, ctx.canvas.height);
+    if (params.high_count <= 1) {
+        blit_texture(ctx, glStuff.blit, glStuff.main.destTexture);
+    } else {
+        blit_texture(ctx, glStuff.blit, glStuff.high.destTexture);
+    }
+    draw_dots(ctx, glStuff.point);
 }
 
 function paint() {
@@ -606,7 +616,7 @@ function paint() {
         if (params.timer !== null) {
             clearTimeout(params.timer);
         }
-        if (params.high_count < 8) {
+        if (params.high_count < 1) {
             params.timer = setTimeout(paint, 100);
         }
     }
@@ -616,23 +626,53 @@ function mousedown() {
 }
 
 function mousemove() {
+    const x = event.clientX;
+    const y = event.clientY;
+    const originX = event.target.getBoundingClientRect().left;
+    const originY = event.target.getBoundingClientRect().top;
+    const hwidth = event.target.clientWidth / 2;
+    const hheight = event.target.clientHeight / 2;
+    const aspectX = event.target.clientWidth / Math.min(event.target.clientWidth, event.target.clientHeight);
+    const aspectY = event.target.clientHeight / Math.min(event.target.clientWidth, event.target.clientHeight);
+    const xy = [
+        ((x - originX - hwidth) / hwidth) * aspectX,
+        (-(y - originY - hheight) / hheight) * aspectY
+    ];
     if (event.buttons === 1) {
-        const x = event.clientX;
-        const y = event.clientY;
-        const originX = event.target.getBoundingClientRect().left;
-        const originY = event.target.getBoundingClientRect().top;
-        const hwidth = event.target.clientWidth / 2;
-        const hheight = event.target.clientHeight / 2;
-        
-        let param = (x - originX) / hwidth - 1;
+        let param = (x - originX) * 0.75 / hwidth;
         param = Math.pow(param, 3) / 16;
         params.c = [-0.125 + param, 0.649519052838329 + 2 * param * param];
+        params.c2 = [-0.125 - param, 0.649519052838329 + 2 * param * param];
         params.mandelbrot = false;
+        params.unscaled_points = [];
+        params.plot_colors = [];
+        params.plot_points = [];
         repaint();
+    } else if (event.shiftKey && !params.mandelbrot) {
+        params.unscaled_points = [];
+        params.plot_colors = [];
+        const start_z = add(params.z0, mul(params.z0Scale, xy));
+        add_julia_dots(start_z, params.c, [1,0,0]);
+        add_julia_dots(start_z, params.c2, [0,1,0]);
+        scale_mandelbrot_dots();
+        paintDots();
+    }
+}
+
+function add_julia_dots(start_z, c, color) {
+    let z = start_z;
+    for (let i = 0; i < 5000; i++) {
+        z = add(mul(z,z), c);
+        params.unscaled_points.push(z);
+        params.plot_colors.push(color);
+        if (cnorm(z) > 16) {
+            break;
+        }
     }
 }
 
 function mousewheel() {
+    event.preventDefault();
     const x = event.clientX;
     const y = event.clientY;
     const originX = event.target.getBoundingClientRect().left;
@@ -975,41 +1015,54 @@ function solve_quadratic(a, b, c) {
 }
 
 class Derivatives {
-    constructor(value, d) {
+    constructor(value, dz, dc) {
         this.value = value;
-        this.d = d;
+        this.dz = dz;
+        this.dc = dc;
     }
 
     static fromConstant(value) {
-        return new Derivatives(value, [0.0, 0.0]);
+        const z = [0.0, 0.0];
+        return new Derivatives(value, z, z);
     }
 
     static fromRealConstant(value) {
         return Derivatives.fromConstant([value, 0.0]);
     }
 
-    static fromVar(v) {
-        return new Derivatives(v, [1.0, 0.0]);
+    static fromZ(z) {
+        const one = [1.0, 0.0];
+        const zero = [0.0, 0.0];
+        return new Derivatives(z, one, zero);
+    }
+
+    static fromC(p) {
+        const one = [1.0, 0.0];
+        const zero = [0.0, 0.0];
+        return new Derivatives(p, zero, one);
     }
 
     add(other) {
         return new Derivatives(
             add(this.value, other.value),
-            add(this.d, other.d),
+            add(this.dz, other.dz),
+            add(this.dc, other.dc)
         );
     }
 
     sub(other) {
         return new Derivatives(
             sub(this.value, other.value),
-            sub(this.d, other.d),
+            sub(this.dz, other.dz),
+            sub(this.dc, other.dc)
         );
     }
 
     scale(r) {
         return new Derivatives(
             scale(r, this.value),
-            scale(r, this.d),
+            scale(r, this.dz),
+            scale(r, this.dc)
         );
     }
 
@@ -1017,8 +1070,12 @@ class Derivatives {
         return new Derivatives(
             mul(this.value, other.value),
             add(
-                mul(this.d, other.value),
-                mul(this.value, other.d)
+                mul(this.dz, other.value),
+                mul(this.value, other.dz)
+            ),
+            add(
+                mul(this.dc, other.value),
+                mul(this.value, other.dc)
             )
         );
     }
@@ -1028,7 +1085,8 @@ class Derivatives {
         const f1 = scale(-1, mul(f, f));
         return new Derivatives(
             f,
-            mul(f1, this.d)
+            mul(f1, this.dz),
+            mul(f1, this.dc)
         );
     }
 
@@ -1039,79 +1097,6 @@ class Derivatives {
     div(other) {
         return this.mul(other.recip());
     }
-
-    real_part() {
-        return new RealDerivatives(this.value[0], [this.d[0], -this.d[1]]);
-    }
-
-    imag_part() {
-        return new RealDerivatives(this.value[1], [this.d[1], this.d[0]]);
-    }
-
-    cnorm_squared() {
-        return this.real_part().square().add(this.imag_part().square());
-    }
-}
-
-class RealDerivatives {
-    constructor(value, d) {
-        this.value = value;
-        this.d = d;
-    }
-
-    fromConstant(value) {
-        return new RealDerivatives(value, 0, 0);
-    }
-
-    together_with(other) {
-        // assumes this.value == other.value
-        return new RealDerivatives(this.value, this.d.concat(other.d));
-    }
-
-    add(other) {
-        let d = [];
-        for (let i = 0; i < this.d.length; i++) {
-            d.push(this.d[i] + other.d[i]);
-        }
-        return new RealDerivatives(
-            this.value + other.value,
-            d
-        );
-    }
-
-    mul(other) {
-        let d = [];
-        for (let i = 0; i < this.d.length; i++) {
-            d.push(this.d[i] * other.value + other.d[i] * this.value);
-        }
-        return new RealDerivatives(
-            this.value * other.value,
-            d,
-        )
-    }
-
-    square() {
-        return this.mul(this);
-    }
-
-    sqrt() {
-        let v = Math.sqrt(this.value);
-        let d = [];
-        for (let i = 0; i < this.d.length; i++) {
-            d.push(this.d[i] * 0.5 / v);
-        }
-        return new RealDerivatives(
-            v,
-            d
-        )
-    }
-}
-
-function target(x, y) {
-    params.c = add(mul([x,y], params.cscale), params.ccenter);
-    params.mandelbrot = false;
-    gen_dots();
-    repaint();
 }
 
 function direction_to_go(z) {
@@ -1154,13 +1139,18 @@ function mandelbrot_direction_to_go(c,target,target_iter) {
     for (let i = 0; i < target_iter; i++) {
         Z = Z.square().add(C);
     }
-    return {d:div(sub(Z.value, target), Z.dc), warning:cnorm(Z.value) > 1000};
+    console.log("Z.value", Z.value, "target", target, "Z.dc", Z.dc);
+    return {d:divEpsilon(sub(Z.value, target), Z.dc, 0.0001), warning:cnorm(Z.value) > 1000};
 }
 
 function scale_mandelbrot_dots() {
     params.plot_points = [];
     for (let i = 0; i < params.unscaled_points.length; i++) {
-        params.plot_points.push(div(sub(params.unscaled_points[i], params.ccenter), params.cscale));
+        if (params.mandelbrot) {
+            params.plot_points.push(div(sub(params.unscaled_points[i], params.ccenter), params.cscale));
+        } else {
+            params.plot_points.push(div(sub(params.unscaled_points[i], params.z0), params.z0Scale));
+        }
     }
 }
 
@@ -1239,69 +1229,38 @@ function find_roots(n, num_roots) {
     return roots;
 }
 
-function trace_from(root, n, epsilon) {
-    let c = Derivatives.fromVar(root);
-    let t = [0.0, 0.0];
-    for (let i = 0; i < 200; i++) {
-        params.unscaled_points.push(c.value);
-        params.plot_colors.push(palette[A-1]);
-        let z = Derivatives.fromRealConstant(0.0);
-        for (let j = 0; j < n; j++) {
-            z = z.square().add(c);
-        }
-        c.value = add(c.value, divEpsilon(sub(t, z.value), z.d, 0.0001));
-        const cs = other_csqrt(c.value);
-        const len = cnorm(cs);
-        t = add(t, scale(epsilon / len, cs));
-    }
-}
-
-function gen_mandelbrot_dots2() {
-    params.unscaled_points = [];
-
-    // let roots = find_roots(A, 1<<(A-1));
-    let roots = [];
-    for (let i = 0; i < 10; i++) {
-        roots.push(find_root(A, [1,0], [Math.random()*2-1, Math.random()-.5], [Math.random()*2-1.5, Math.random()-.5]));
-    }
-    console.log("Roots", roots);
-
-    for (let r = 0; r < roots.length; r++) {
-        params.unscaled_points.push(roots[r]);
-        params.plot_colors.push(palette[A-1]);
-        // trace_from(roots[r], A, 0.01);
-        // trace_from(roots[r], A, -0.01);
-    }
-    scale_mandelbrot_dots();
-}
-
 function gen_mandelbrot_dots() {
     let theta = 0;
     params.unscaled_points = [];
     let done = [];
-    for (let j = 0; j <= Math.min(Math.max(A,B)+1, palette.length); j++) {
-        if (j+1 < A || j+1 > B) {
-            continue;
-        }
+    for (let j = 2; j <= 2; j++) {
         let denom = Math.pow(2, j + 1) - 1;
-        for (let num = 0; num < denom; num++) {
+        for (let num = 1; num <= 1; num++) {
             if (done.indexOf(num / denom) !== -1) {
                 continue;
             }
             done.push(num / denom);
-            const theta = 6.28318530718 * num / denom;
-            let c = scale(50, [Math.cos(theta),Math.sin(theta)]);
-            let target = c;
+            let target_ang = num;
+            let target_lens = [];
+            for (let i = 0; i < 10; i++) {
+                target_lens[i] = Math.exp(Math.log(1e3) * Math.pow(2, i/10));
+            }
+            console.log(target_lens);
+            let target_len = target_lens.length - 1;
+            let c = scale(target_lens[target_len], [Math.cos(6.28318530718 * target_ang / denom),Math.sin(6.28318530718 * target_ang / denom)]);
             let target_iter = 0;
-            for (let i = 0; i < 2000; i++) {
+            for (let i = 0; i < 4000; i++) {
+                let target = scale(target_lens[target_len], [Math.cos(6.28318530718 * target_ang / denom),Math.sin(6.28318530718 * target_ang / denom)]);
                 let {d,warning} = mandelbrot_direction_to_go(c,target,target_iter);
+                console.log("target", target, "c", c, "d", d, "target_iter", target_iter);
                 c = sub(c, d);
-                target = scale(0.9, target);
-                if (cnorm(target) < 50) {
-                    target = mul(target,target);
+                target_len -= 1;
+                if (target_len < 0) {
+                    target_len = target_lens.length - 1;
+                    target_ang = (target_ang * 2) % denom;
                     target_iter += 1;
                 }
-                if (target_iter > j) {
+                if (true) {
                     params.unscaled_points.push(c);
                     params.plot_colors.push(palette[j]);
                 }
@@ -1507,7 +1466,7 @@ function start() {
     glStuff = setup();
     update_buttons();
     if (showDots) {
-        gen_mandelbrot_dots2();
+        gen_mandelbrot_dots();
     }
     paint();
 }

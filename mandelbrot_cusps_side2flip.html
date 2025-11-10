@@ -165,7 +165,7 @@ function fragmentShaderSource(max_iter, max_period) {
         }
 
         vec2 solve_quadratic(vec2 a,vec2 b,vec2 c) {
-            return div(-b - csqrt(mul(b,b) + 4.0 * mul(a,c)), 2.0 * a);
+            return div(-b - csqrt(mul(b,b) - 4.0 * mul(a,c)), 2.0 * a);
         }
 
         float mandelbrot(vec2 actual_z0, vec2 actual_c) {
@@ -189,8 +189,11 @@ function fragmentShaderSource(max_iter, max_period) {
             } else {
                 vec2 root = solve_quadratic(one, -one, c);
                 vec2 root2 = solve_quadratic(one, -one, uc2);
-                vec2 flipz = mul(root2, div(z0, root).yx);
+                vec2 flipz = mul(root2, conj(div(z0, root)));
                 gl_FragColor = vec4(mandelbrot(z0, c), mandelbrot(flipz, uc2), 0.5, 1.0);
+                if (length(z0 - root) < 0.01) {
+                    gl_FragColor.g = 1.0;
+                }
             }
         }
     `;
@@ -613,18 +616,26 @@ function mousemove() {
         params.unscaled_points = [];
         params.plot_colors = [];
         const start_z = add(params.z0, mul(params.z0Scale, xy));
-        add_julia_dots(start_z, params.c, [1,0,0]);
-        add_julia_dots(start_z, params.c2, [0,1,0]);
+        add_julia_dots(start_z, [1,0,0], false);
+        add_julia_dots(start_z, [0,1,0], true);
         scale_mandelbrot_dots();
         paintDots();
     }
 }
 
-function add_julia_dots(start_z, c, color) {
+function add_julia_dots(start_z, color, flip) {
     let z = start_z;
+    let root = solve_quadratic2([1,0], [-1,0], params.c);
+    let root2 = solve_quadratic2([1,0], [-1,0], params.c2);
+    let fudge = [Math.cos(0.1), Math.sin(0.1)];
     for (let i = 0; i < 5000; i++) {
-        z = add(mul(z,z), c);
-        params.unscaled_points.push(z);
+        if (flip) {
+            z = add(mul(z,z), params.c2);
+            params.unscaled_points.push(mul(root2, conj(div(z, root))));
+        } else {
+            z = add(mul(z,z), params.c);
+            params.unscaled_points.push(z);
+        }
         params.plot_colors.push(color);
         if (cnorm(z) > 16) {
             break;
@@ -752,6 +763,10 @@ function div(x, y) {
         (x[0] * y[0] + x[1] * y[1]) / denom,
         (x[1] * y[0] - x[0] * y[1]) / denom
     ];
+}
+
+function conj(z) {
+    return [z[0], -z[1]];
 }
 
 function divEpsilon(x, y, epsilon) {
@@ -971,6 +986,12 @@ function other_csqrt(z) {
 function solve_quadratic(a, b, c) {
     const discriminant = csqrt(sub(mul(b, b), scale(4.0, mul(a, c))));
     const root1 = div(sub(discriminant, b), scale(2.0, a));
+    return root1;
+}
+
+function solve_quadratic2(a, b, c) {
+    const discriminant = csqrt(sub(mul(b, b), scale(4.0, mul(a, c))));
+    const root1 = div(add(discriminant, b), scale(-2.0, a));
     return root1;
 }
 
