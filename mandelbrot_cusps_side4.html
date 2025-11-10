@@ -346,19 +346,22 @@ function setup() {
     // Shaders for point markers
     const vsSourcePoint = `
         precision highp float;
-        uniform vec2 uVertexPosition;
+        attribute vec2 aVertexPosition;
+        attribute vec3 aVertexColor;
         uniform float uPointSize;
         uniform vec2 aspect;
+        varying vec3 vertexColor;
         void main(void) {
-            gl_Position = vec4(uVertexPosition / aspect, 0.0, 1.0);
+            gl_Position = vec4(aVertexPosition / aspect, 0.0, 1.0);
             gl_PointSize = uPointSize;
+            vertexColor = aVertexColor;
         }
     `;
     const fsSourcePoint = `
         precision highp float;
-        uniform vec3 uColor;
+        varying vec3 vertexColor;
         void main(void) {
-            gl_FragColor = vec4(uColor, 1.0);
+            gl_FragColor = vec4(vertexColor, 1.0);
         }
     `;
     const vertexShaderPoint = ctx.createShader(ctx.VERTEX_SHADER);
@@ -426,6 +429,15 @@ function setup() {
     ctx.framebufferTexture2D(ctx.FRAMEBUFFER, ctx.COLOR_ATTACHMENT0, ctx.TEXTURE_2D, destTextureHigh, 0);
     ctx.bindFramebuffer(ctx.FRAMEBUFFER, null);
 
+    // Create vertex buffer to hold points
+    const pointVertexBuffer = ctx.createBuffer();
+    const pointColorBuffer = ctx.createBuffer();
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, pointVertexBuffer);
+    ctx.bufferData(ctx.ARRAY_BUFFER, [], ctx.DYNAMIC_DRAW);
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, pointColorBuffer);
+    ctx.bufferData(ctx.ARRAY_BUFFER, [], ctx.DYNAMIC_DRAW);
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, null);
+
     return {
         main: {
             shaderProgram,
@@ -490,10 +502,12 @@ function setup() {
         },
         point: {
             shaderProgram: shaderProgramPoint,
-            uVertexPosition: ctx.getUniformLocation(shaderProgramPoint, "uVertexPosition"),
             uPointSize: ctx.getUniformLocation(shaderProgramPoint, "uPointSize"),
-            uColor: ctx.getUniformLocation(shaderProgramPoint, "uColor"),
             uAspect: ctx.getUniformLocation(shaderProgramPoint, "aspect"),
+            pointVertexBuffer,
+            pointColorBuffer,
+            aVertexPosition: ctx.getAttribLocation(shaderProgramPoint, "aVertexPosition"),
+            aVertexColor: ctx.getAttribLocation(shaderProgramPoint, "aVertexColor"),
         }
     };
 }
@@ -531,6 +545,7 @@ function paintMandelbrot(ctx, stuff, nudgeX, nudgeY) {
     ctx.enableVertexAttribArray(stuff.aVertexPosition);
     ctx.vertexAttribPointer(stuff.aVertexPosition, 2, ctx.FLOAT, false, 0, 0);
     ctx.drawArrays(ctx.TRIANGLE_STRIP, 0, 4);
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, null);
 }
 
 function blit_texture(ctx, stuff, texture) {
@@ -545,6 +560,7 @@ function blit_texture(ctx, stuff, texture) {
     ctx.drawArrays(ctx.TRIANGLE_STRIP, 0, 4);
 
     ctx.bindTexture(ctx.TEXTURE_2D, null);
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, null);
 }
 
 function draw_dots(ctx, stuff) {
@@ -552,13 +568,16 @@ function draw_dots(ctx, stuff) {
     ctx.uniform1f(stuff.uPointSize, 4.0);
     ctx.uniform2f(stuff.uAspect, ctx.canvas.width / Math.min(ctx.canvas.width, ctx.canvas.height), ctx.canvas.height / Math.min(ctx.canvas.width, ctx.canvas.height));
 
-    for (let i = params.plot_points.length-1; i >= 0; i--) {
-        const pt = params.plot_points[i];
-        const col = params.plot_colors[i];
-        ctx.uniform2f(stuff.uVertexPosition, pt[0], pt[1]);
-        ctx.uniform3f(stuff.uColor, col[0], col[1], col[2]);
-        ctx.drawArrays(ctx.POINTS, 0, 1);
-    }
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, stuff.pointVertexBuffer);
+    ctx.enableVertexAttribArray(stuff.aVertexPosition);
+    ctx.vertexAttribPointer(stuff.aVertexPosition, 2, ctx.FLOAT, false, 0, 0);
+
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, stuff.pointColorBuffer);
+    ctx.enableVertexAttribArray(stuff.aVertexColor);
+    ctx.vertexAttribPointer(stuff.aVertexColor, 3, ctx.FLOAT, false, 0, 0);
+
+    ctx.drawArrays(ctx.POINTS, 0, params.plot_points.length);
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, null);
 }
 
 function paintDots() {
@@ -1152,6 +1171,20 @@ function scale_mandelbrot_dots() {
             params.plot_points.push(div(sub(params.unscaled_points[i], params.z0), params.z0Scale));
         }
     }
+    const ctx = canvas.getContext("webgl");
+
+    const pdata = [];
+    const cdata = [];
+    for (let i = 0; i < params.plot_points.length; i++) {
+        pdata.push(...params.plot_points[i]);
+        cdata.push(...params.plot_colors[i]);
+    }
+
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, glStuff.point.pointVertexBuffer);
+    ctx.bufferData(ctx.ARRAY_BUFFER, new Float32Array(pdata), ctx.DYNAMIC_DRAW);
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, glStuff.point.pointColorBuffer);
+    ctx.bufferData(ctx.ARRAY_BUFFER, new Float32Array(cdata), ctx.DYNAMIC_DRAW);
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, null);
 }
 
 const palette = [
