@@ -174,12 +174,15 @@ def main():
                 found2 = find_polynomials_with_product(infos, corresponding_dpoly)
                 assert all(info.period == i for info in found2)
                 print(f" Found dpoly in {len(found2)} pieces: {[f.poly.as_expr() for f in found2]}")
+                assert facdegree == i
             elif found[0].period == i:
                 assert found[0].respoly is None
                 found[0].respoly = fac
-                print(f" Setting respoly")
+                print(f" Setting respoly for {found[0].poly.as_expr()}")
+                assert facdegree == i
             elif found[0].period < i:
                 print(f" Definitely seen dpoly! (period={found[0].period})")
+                assert facdegree == found[0].period
                 continue
 
             if 2*i <= MAX:

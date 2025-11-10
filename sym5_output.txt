@@ -9,7 +9,7 @@ Remaining discriminant [1]: 4*c - 1
 Computing resultant...
 Factoring resultant...
 resultant factor [1] 4*c + x**2 - 2*x
- Setting respoly
+ Setting respoly for 4*c - 1
  degree = 2
    --> 2  Poly(4*c + 3, c, domain='ZZ')
  degree = 3
@@ -44,7 +44,7 @@ p1.2 [3] of 4*c + 3
 Computing resultant...
 Factoring resultant...
 resultant factor [2] 4*c - x + 4
- Setting respoly
+ Setting respoly for 4*c + 3
  degree = 2
    --> 4  Poly(4*c + 5, c, domain='ZZ')
  degree = 3
