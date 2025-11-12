@@ -7,15 +7,23 @@
     <script>
 "use strict";
 
-const NUMERATOR =   0b000001000001000010;
-const NUMERATOR2 =  0b000001000010000001;
-const DENOMINATOR = 0b111111111111111111;
+// const NUMERATOR =   0b000001000001000010;
+// const NUMERATOR2 =  0b000001000010000001;
+// const DENOMINATOR = 0b111111111111111111;
+
+const NUMERATOR=9;
+const NUMERATOR2=10;
+const DENOMINATOR=31;
+
 // const NUMERATOR = 1366;
 // const NUMERATOR2 = 1369;
 // const DENOMINATOR = 4095;
 const PERIOD = Math.round(Math.log2(DENOMINATOR+1));
+const BAILIN = 0.04;
 
-const showDots = true;
+const showLines = false;
+const interpolatePoints = false;
+const plotBoth = false;
 const uPowersArrays = {
     1: [0,1],
     2: [0,0,1],
@@ -188,7 +196,12 @@ function fragmentShaderSource(max_iter, max_period) {
                 float fiter = mandelbrot(vec2(0.0, 0.0), c);
                 gl_FragColor = vec4(fiter, fiter, fiter, 1.0);
             } else {
-                gl_FragColor = vec4(mandelbrot(z0, c), mandelbrot(z0, uc2), 0.5, 1.0);
+                float j1 = mandelbrot(z0, c);
+                float j2 = j1;
+                if (${plotBoth}) {
+                    j2 = mandelbrot(z0, uc2);
+                }
+                gl_FragColor = vec4(j1, j2, 0.5, 1.0);
             }
         }
     `;
@@ -537,7 +550,7 @@ function draw_dots(ctx, stuff) {
     ctx.enableVertexAttribArray(stuff.aVertexColor);
     ctx.vertexAttribPointer(stuff.aVertexColor, 3, ctx.FLOAT, false, 0, 0);
 
-    if (params.mandelbrot) {
+    if (params.mandelbrot || !showLines) {
         ctx.drawArrays(ctx.POINTS, 0, params.plot_points.length);
     } else {
         ctx.bindBuffer(ctx.ELEMENT_ARRAY_BUFFER, stuff.pointIndexBuffer);
@@ -640,8 +653,8 @@ function mousemove() {
         params.unscaled_points = [];
         params.plot_colors = [];
         params.plot_indices = [];
-        add_julia_dots([0,0], params.c, [1,0,0]);
-        add_julia_dots([0,0], params.c2, [0,1,0]);
+        add_julia_dots([0,0], params.c, [1,0,0], [1,0.7,0.7], NUMERATOR, DENOMINATOR);
+        add_julia_dots([0,0], params.c2, [0,1,0], [0.7,1,0.7], NUMERATOR2, DENOMINATOR);
         scale_mandelbrot_dots();
         repaint();
     } else if (event.shiftKey && !params.mandelbrot) {
@@ -649,27 +662,104 @@ function mousemove() {
         params.plot_colors = [];
         params.plot_indices = [];
         const start_z = add(params.z0, mul(params.z0Scale, xy));
-        add_julia_dots(start_z, params.c, [1,0,0]);
-        add_julia_dots(start_z, params.c2, [0,1,0]);
+        add_julia_dots(start_z, params.c, [1,0,0], [1,0.7,0.7], NUMERATOR, DENOMINATOR);
+        add_julia_dots(start_z, params.c2, [0,1,0], [0.7,1,0.7], NUMERATOR2, DENOMINATOR);
         scale_mandelbrot_dots();
         paintDots();
     }
 }
 
-function add_julia_dots(start_z, c, color) {
-    let z = start_z;
+function add_julia_dots(start_z, c, color, inverse_color, numerator, denominator) {
+    let z = null;
+    
+    // "Backwards"
+
+    const curves = [];
+    let n = numerator;
+    let target_lens = [];
+    const gap = 10;
+    z = null;
+    for (let i = 0; i < gap; i++) {
+        target_lens[i] = Math.exp(Math.log(1e3) * Math.pow(2, (gap-i-1)/gap));
+    }
+    console.log(target_lens);
+    do {
+        curves.push([]);
+        for (let i = 0; i < target_lens.length; i++) {
+            const tl = target_lens[i];
+            z = [tl * Math.cos(n/denominator * 6.28318530718), tl * Math.sin(n/denominator * 6.28318530718)];
+            curves[curves.length-1].push(z);
+        }
+        n = (n * 2) % denominator;
+        if (curves.length > 1000) {
+            throw "This seems to be failing";
+        }
+    } while (n !== numerator);
+    const ncurves = curves.length;
+
+    let len_i = target_lens.length - 1;
+    for (let j = 0; j < 5000; j++) {
+        let finished = false;
+        for (let i = 0; i < ncurves; i++) {
+            const i2 = (i+ncurves-1)%ncurves;
+            z = curves[i][j];
+            z = csqrt(sub(z, c));
+            if (cnorm(z) < BAILIN) {
+                finished = true;
+            }
+            console.log(cnorm(z));
+            const nearby = curves[i2][curves[i2].length-1];
+            if (cnorm(add(nearby,z)) < cnorm(sub(nearby,z))) {
+                z = scale(-1,z);
+            }
+            curves[i2].push(z);
+            params.unscaled_points.push(z);
+            params.plot_colors.push(inverse_color);
+        }
+        if (finished) {
+            break;
+        }
+    }
+
+    // "Forwards"
+    z = start_z;
+    const startIndex = params.unscaled_points.length;
     for (let i = 0; i < 5000; i++) {
         params.unscaled_points.push(z);
         params.plot_colors.push(color);
-        if (i >= PERIOD) {
+        if (i >= PERIOD && showLines) {
             params.plot_indices.push(params.unscaled_points.length-1-PERIOD);
             params.plot_indices.push(params.unscaled_points.length-1);
         }
         z = add(mul(z,z), c);
-        if (cnorm(z) > 16) {
+        if (cnorm(z) > 1024) {
             break;
         }
     }
+
+    // const endIndex = params.unscaled_points.length;
+
+    // let j = 1;
+    // let sc = cnorm(params.unscaled_points[endIndex - j]);
+    // let theta = atan2(params.unscaled_points[endIndex - j][1], params.unscaled_points[endIndex - j][0]);
+    // for (let k = 0; k < 20; k++) {
+    //     sc *= 0.9;
+    //     if (sc < 32) {
+    //         sc = cnorm(params.unscaled_points[endIndex - j]);
+    //         theta = 
+    //     }
+    //     let startZ = scale(sc / cnorm(params.unscaled_points[endIndex - j]), params.unscaled_points[endIndex - j]);
+    //     z = startZ;
+    //     for (let i = endIndex-j; i >= Math.max(startIndex, endIndex-2-5*PERIOD); i -= 1) {
+    //         const target = params.unscaled_points[i];
+    //         if (cnorm(add(target,z)) < cnorm(sub(target,z))) {
+    //             z = scale(-1, z);
+    //         }
+    //         params.unscaled_points.push(z);
+    //         params.plot_colors.push([1,1,1]);
+    //         z = csqrt(sub(z, c));
+    //     }
+    // }
 }
 
 function mousewheel() {
@@ -1220,9 +1310,7 @@ function gen_mandelbrot_dots() {
 
 function start() {
     glStuff = setup();
-    if (showDots) {
-        gen_mandelbrot_dots();
-    }
+    gen_mandelbrot_dots();
     paint();
 }
 

@@ -31,15 +31,6 @@ let params = {
     color: true,
     drag: "zoom",
     drag_start: [0.0, 0.0],
-    timer: null,
-    last_moved: 0,
-    high_count: 0,
-    touchStartA: null,
-    touchStartB: null,
-    touchStartAScale: null,
-    touchStartBScale: null,
-    touchSide: null,
-    touchStartId: null,
     plot_points: [],
     plot_colors: [],
     unscaled_points: [],
@@ -67,23 +58,14 @@ function binfrac(fixed, recurring) {
     return {num, denom};
 }
 
-function fragmentShaderSource(max_iter, max_period) {
+function texturedFragmentShaderSource() {
     return `
         precision highp float;
         varying vec2 c;
         varying vec2 z0;
-        uniform bool uMandelbrot;
         uniform float uBailout;
-        uniform float uFracNum;
-        uniform float uFracDenom;
-        uniform vec3 uPalette[${palette.length}];
+        uniform sampler2D uSkip;
         const vec2 one = vec2(1.0, 0.0);
-
-        vec2 mul(vec2 x, vec2 y) {
-            return vec2(
-                x.x * y.x - x.y * y.y,
-                x.x * y.y + x.y * y.x);
-        }
 
         vec2 csquare(vec2 z) {
             return vec2(
@@ -92,144 +74,57 @@ function fragmentShaderSource(max_iter, max_period) {
             );
         }
 
-        vec2 div(vec2 x, vec2 y) {
-            float denom = y.x * y.x + y.y * y.y;
+        void main(void) {
+            vec2 z = z0;
+            float fiter = 0.0;
+            for (int i = 0; i < 5; i++) {
+                if (length(z) < 1.0) {
+                    vec2 texCoord = 0.5 + 0.5 * z;
+                    vec4 rgba = texture2D(uSkip, texCoord);
+                    fiter += rgba.b;
+                    z = rgba.xy;
+                }
+                for (int j = 0; j < 4; j++) {
+                    z = csquare(z) + c;
+                    fiter += 1.0;
+                    if (length(z) > uBailout) {
+                        break;
+                    }
+                }
+            }
+            fiter /= 50.0;
+            gl_FragColor = vec4(fiter, fiter / 10.0, fiter / 100.0, 1.0);
+        }
+    `;
+}
+
+function fragmentShaderSource(max_iter, max_period) {
+    return `
+        precision highp float;
+        varying vec2 c;
+        varying vec2 z0;
+        uniform float uBailout;
+        const vec2 one = vec2(1.0, 0.0);
+
+        vec2 csquare(vec2 z) {
             return vec2(
-                (x.x * y.x + x.y * y.y) / denom,
-                (x.y * y.x - x.x * y.y) / denom);
-        }
-
-        vec2 csqrt(vec2 z) {
-            float r = length(z);
-            float theta = atan(z.y, z.x);
-            return vec2(
-                sqrt(r) * cos(theta / 2.0),
-                sqrt(r) * sin(theta / 2.0)
+                z.x * z.x - z.y * z.y,
+                2.0 * z.x * z.y
             );
         }
 
-        vec2 other_csqrt(vec2 z) {
-            float r = sqrt(length(z));
-            float theta = atan(-z.y, -z.x);
-            return vec2(
-                -r * sin(theta / 2.0),
-                r * cos(theta / 2.0)
-            );
-        }
-
-        float angle_distance(float a, float b) {
-            float twopi = 6.28318530718;
-            float diff = mod(b - a, twopi);
-            return min(diff, twopi - diff);
-        }
-
-        float closest_half_angle(float theta, float target) {
-            float c0 = theta * 0.5;
-            float c1 = c0 + 3.14159265359;
-            float d0 = angle_distance(c0, target);
-            float d1 = angle_distance(c1, target);
-            return d0 < d1 ? c0 : c1;
-        }
-
-        float closest_angle(float c0, float c1, float target) {
-            float d0 = angle_distance(c0, target);
-            float d1 = angle_distance(c1, target);
-            return d0 < d1 ? c0 : c1;
-        }
-
-        float atan2(vec2 z) {
-            return atan(z.y, z.x);
-        }
-
-        vec2 cexp(vec2 z) {
-            return exp(z.x) * vec2(cos(z.y), sin(z.y));
-        }
-
-        vec2 clog(vec2 z) {
-            return vec2(log(length(z)), atan(z.y, z.x));
-        }
-
-        vec2 cpow(vec2 z, int p) {
-            float r = pow(length(z), float(p));
-            float theta = atan(z.y, z.x) * float(p);
-            return vec2(
-                r * cos(theta),
-                r * sin(theta)
-            );
-        }
-
-        float nearest(float course, float fine) {
-            return fine + floor(course - fine + 0.5);
-        }
-
-        struct D {
-            vec2 value;
-            vec2 dc;
-        };
-
-        D dsquare(D z) {
-            return D(
-                mul(z.value, z.value),
-                2.0 * mul(z.value, z.dc));
-        }
-
-        D dmul(D x, D y) {
-            return D(
-                mul(x.value, y.value),
-                mul(x.value, y.dc) + mul(y.value, x.dc)
-            );
-        }
-
-        D dadd(D a, D b) {
-            return D(
-                a.value + b.value,
-                a.dc + b.dc);
-        }
-
-        D dadd_const(D a, vec2 c) {
-            return D(
-                a.value + c,
-                a.dc
-            );
-        }
-
-        D dsqrt(D z) {
-            vec2 s = csqrt(z.value);
-            return D(
-                s,
-                0.5 * div(z.dc, s)
-            );
-        }
-
-        D dbar(D z) {
-            return D(
-                vec2(-z.value.x, z.value.y),
-                z.dc
-            );
-        }
-
-        vec4 mandelbrot(vec2 actual_z0) {
-            vec2 z = actual_z0;
+        void main(void) {
+            vec2 z = z0;
             int escaped = -1;
             for (int iteration = 1; iteration < ${max_iter}; iteration++) {
-                if (length(z) > 0.75) {
+                if (length(z) > 0.8) {
                     escaped = iteration;
                     break;
                 }
                 z = csquare(z) + c;
             }
 
-            float fiter = log(float(escaped)) / 15.0;
-            vec4 color = vec4(0.5 + 0.5 * z, fiter * 2.0, 1.0);
-            return color;
-        }
-
-        void main(void) {
-            if (uMandelbrot) {
-                gl_FragColor = mandelbrot(vec2(0.0, 0.0));
-            } else {
-                gl_FragColor = mandelbrot(z0);
-            }
+            gl_FragColor = vec4(z, float(escaped), 1.0);
         }
     `;
 }
@@ -243,32 +138,19 @@ function setup() {
     const vsSource = `
         precision highp float;
         attribute vec2 aVertexPosition;
-        uniform vec2 uz0;
-        uniform vec2 uz0Scale;
         uniform vec2 uc;
-        uniform vec2 ucscale;
-        uniform vec2 uNudge;
         varying vec2 c;
         varying vec2 z0;
-        uniform vec2 aspect;
-
-        vec2 mul(vec2 x, vec2 y) {
-            return vec2(
-                x.x * y.x - x.y * y.y,
-                x.x * y.y + x.y * y.x);
-        }
 
         void main(void) {
             gl_Position = vec4(aVertexPosition, 0.0, 1.0);
-            vec2 vp = aVertexPosition * aspect + uNudge;
-            c = uc + mul(vp, ucscale);
-            z0 = uz0 + mul(vp, uz0Scale);
+            z0 = aVertexPosition;
+            c = uc;
         }
     `;
 
     // Mandelbrot/Julia fragment shader program
-    const fsSource = fragmentShaderSource(2000, 32);
-    const fsSourceHigh = fragmentShaderSource(50000, 100);
+    const fsSource = fragmentShaderSource(50000, 32);
 
     // Initialize shaders
     const vertexShader = ctx.createShader(ctx.VERTEX_SHADER);
@@ -289,37 +171,31 @@ function setup() {
     ctx.attachShader(shaderProgram, fragmentShader);
     ctx.linkProgram(shaderProgram);
 
-    // Initialize shaders (high iteration count)
-    const fragmentShaderHigh = ctx.createShader(ctx.FRAGMENT_SHADER);
-    ctx.shaderSource(fragmentShaderHigh, fsSourceHigh);
-    ctx.compileShader(fragmentShaderHigh);
-    if (!ctx.getShaderParameter(fragmentShaderHigh, ctx.COMPILE_STATUS)) {
-        console.error("An error occurred compiling the high iteration shader: " +
-            ctx.getShaderInfoLog(fragmentShaderHigh));
-        return null;
-    }
-    const shaderProgramHigh = ctx.createProgram();
-    ctx.attachShader(shaderProgramHigh, vertexShader);
-    ctx.attachShader(shaderProgramHigh, fragmentShaderHigh);
-    ctx.linkProgram(shaderProgramHigh);
-
     // Shaders for texture blitting
     const vsSourceBlit = `
+        precision highp float;
         attribute vec2 aVertexPosition;
-        varying vec2 vTexCoord;
+        uniform vec2 uz0;
+        uniform vec2 uz0Scale;
+        uniform vec2 uc;
+        varying vec2 c;
+        varying vec2 z0;
+        uniform vec2 aspect;
+
+        vec2 mul(vec2 x, vec2 y) {
+            return vec2(
+                x.x * y.x - x.y * y.y,
+                x.x * y.y + x.y * y.x);
+        }
+
         void main(void) {
             gl_Position = vec4(aVertexPosition, 0.0, 1.0);
-            vTexCoord = (aVertexPosition + vec2(1.0, 1.0)) * 0.5;
+            vec2 vp = aVertexPosition * aspect;
+            c = uc;
+            z0 = uz0 + mul(vp, uz0Scale);
         }
     `;
-    const fsSourceBlit = `
-        precision highp float;
-        varying vec2 vTexCoord;
-        uniform sampler2D uTexture;
-        void main(void) {
-            gl_FragColor = texture2D(uTexture, vTexCoord);
-        }
-    `;
+    const fsSourceBlit = texturedFragmentShaderSource();
     const vertexShaderBlit = ctx.createShader(ctx.VERTEX_SHADER);
     ctx.shaderSource(vertexShaderBlit, vsSourceBlit);
     ctx.compileShader(vertexShaderBlit);
@@ -408,24 +284,6 @@ function setup() {
     ctx.framebufferTexture2D(ctx.FRAMEBUFFER, ctx.COLOR_ATTACHMENT0, ctx.TEXTURE_2D, destTexture, 0);
     ctx.bindFramebuffer(ctx.FRAMEBUFFER, null);
 
-    // Create texture to hold high-iteration Mandelbrot image
-    const fbWidthHigh = fbWidth;
-    const fbHeightHigh = fbHeight;
-    const destTextureHigh = ctx.createTexture();
-    ctx.bindTexture(ctx.TEXTURE_2D, destTextureHigh);
-    ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGBA, fbWidthHigh, fbHeightHigh, 0, ctx.RGBA, ctx.UNSIGNED_BYTE, null);
-    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MIN_FILTER, ctx.LINEAR);
-    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MAG_FILTER, ctx.LINEAR);
-    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_S, ctx.CLAMP_TO_EDGE);
-    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_T, ctx.CLAMP_TO_EDGE);
-    ctx.bindTexture(ctx.TEXTURE_2D, null);
-
-    // Create framebuffer to render high-iteration Mandelbrot image into
-    const framebufferHigh = ctx.createFramebuffer();
-    ctx.bindFramebuffer(ctx.FRAMEBUFFER, framebufferHigh);
-    ctx.framebufferTexture2D(ctx.FRAMEBUFFER, ctx.COLOR_ATTACHMENT0, ctx.TEXTURE_2D, destTextureHigh, 0);
-    ctx.bindFramebuffer(ctx.FRAMEBUFFER, null);
-
     return {
         main: {
             shaderProgram,
@@ -437,9 +295,7 @@ function setup() {
             ucscale: ctx.getUniformLocation(shaderProgram, "ucscale"),
             uBailout: ctx.getUniformLocation(shaderProgram, "uBailout"),
             uBailin: ctx.getUniformLocation(shaderProgram, "uBailin"),
-            bailin: 0.002,
             bailout: 1000000,
-            uNudge: ctx.getUniformLocation(shaderProgram, "uNudge"),
             vertexBuffer,
             destTexture,
             framebuffer,
@@ -453,38 +309,17 @@ function setup() {
             uPowers: ctx.getUniformLocation(shaderProgram, "uPowers"),
             uPalette: ctx.getUniformLocation(shaderProgram, "uPalette"),
         },
-        high: {
-            shaderProgram: shaderProgramHigh,
-            aVertexPosition: ctx.getAttribLocation(shaderProgramHigh, "aVertexPosition"),
-            uMandelbrot: ctx.getUniformLocation(shaderProgramHigh, "uMandelbrot"),
-            uz0: ctx.getUniformLocation(shaderProgramHigh, "uz0"),
-            uz0Scale: ctx.getUniformLocation(shaderProgramHigh, "uz0Scale"),
-            uc: ctx.getUniformLocation(shaderProgramHigh, "uc"),
-            uascale: ctx.getUniformLocation(shaderProgramHigh, "uascale"),
-            ucscale: ctx.getUniformLocation(shaderProgramHigh, "ucscale"),
-            uBailout: ctx.getUniformLocation(shaderProgramHigh, "uBailout"),
-            uBailin: ctx.getUniformLocation(shaderProgramHigh, "uBailin"),
-            bailin: 0.001,
-            bailout: 1000000,
-            uNudge: ctx.getUniformLocation(shaderProgramHigh, "uNudge"),
-            vertexBuffer,
-            destTexture: destTextureHigh,
-            framebuffer: framebufferHigh,
-            fbWidth: fbWidthHigh,
-            fbHeight: fbHeightHigh,
-            uBrightness: ctx.getUniformLocation(shaderProgramHigh, "uBrightness"),
-            brightness: 0.02,
-            uAspect: ctx.getUniformLocation(shaderProgramHigh, "aspect"),
-            uFracNum: ctx.getUniformLocation(shaderProgramHigh, "uFracNum"),
-            uFracDenom: ctx.getUniformLocation(shaderProgramHigh, "uFracDenom"),
-            uPowers: ctx.getUniformLocation(shaderProgramHigh, "uPowers"),
-            uPalette: ctx.getUniformLocation(shaderProgramHigh, "uPalette"),
-        },
         blit: {
             shaderProgram: shaderProgramBlit,
             aVertexPosition: ctx.getAttribLocation(shaderProgramBlit, "aVertexPosition"),
-            uTexture: ctx.getUniformLocation(shaderProgramBlit, "uTexture"),
+            uTexture: ctx.getUniformLocation(shaderProgramBlit, "uSkip"),
             vertexBuffer,
+            uAspect: ctx.getUniformLocation(shaderProgramBlit, "aspect"),
+            uc: ctx.getUniformLocation(shaderProgramBlit, "uc"),
+            uz0: ctx.getUniformLocation(shaderProgramBlit, "uz0"),
+            uz0Scale: ctx.getUniformLocation(shaderProgramBlit, "uz0Scale"),
+            uBailout: ctx.getUniformLocation(shaderProgramBlit, "uBailout"),
+            bailout: 2,
         },
         point: {
             shaderProgram: shaderProgramPoint,
@@ -496,38 +331,23 @@ function setup() {
     };
 }
 
-function paintMandelbrot(ctx, stuff, nudgeX, nudgeY) {
+function paintJulia(ctx, stuff) {
     // Draw the Julia or Mandelbrot set
     ctx.useProgram(stuff.shaderProgram);
     ctx.uniform1f(stuff.uBailout, stuff.bailout);
-    ctx.uniform2f(stuff.uNudge, nudgeX, nudgeY);
     ctx.uniform2f(stuff.uAspect, ctx.canvas.width / Math.min(ctx.canvas.width, ctx.canvas.height), ctx.canvas.height / Math.min(ctx.canvas.width, ctx.canvas.height));
-    ctx.uniform1f(stuff.uFracNum, params.frac.num);
-    ctx.uniform1f(stuff.uFracDenom, params.frac.denom);
 
-    // ctx.uniform1iv(stuff.uPowers, uPowersArrays[B]);
-    const paletteConcat = [];
-    for (let i = 0; i < palette.length; i++) {
-        paletteConcat.push(...palette[i]);
-    }
-    ctx.uniform3fv(stuff.uPalette, paletteConcat);
+    ctx.uniform1i(stuff.uMandelbrot, false);
+    ctx.uniform2f(stuff.uz0Scale, params.z0Scale[0], params.z0Scale[1]);
+    ctx.uniform2f(stuff.uc, params.c[0], params.c[1]);
+    ctx.uniform2f(stuff.ucscale, 0.0, 0.0);
+    ctx.uniform2f(stuff.uz0, params.z0[0], params.z0[1]);
 
-    if (params.mandelbrot) {
-        ctx.uniform1i(stuff.uMandelbrot, true);
-        ctx.uniform2f(stuff.uz0Scale, 0.0, 0.0);
-        ctx.uniform2f(stuff.uc, params.ccenter[0], params.ccenter[1]);
-        ctx.uniform2f(stuff.ucscale, params.cscale[0], params.cscale[1]);
-    } else {
-        ctx.uniform1i(stuff.uMandelbrot, false);
-        ctx.uniform2f(stuff.uz0Scale, params.z0Scale[0], params.z0Scale[1]);
-        ctx.uniform2f(stuff.uc, params.c[0], params.c[1]);
-        ctx.uniform2f(stuff.ucscale, 0.0, 0.0);
-        ctx.uniform2f(stuff.uz0, params.z0[0], params.z0[1]);
-    }
     ctx.bindBuffer(ctx.ARRAY_BUFFER, stuff.vertexBuffer);
     ctx.enableVertexAttribArray(stuff.aVertexPosition);
     ctx.vertexAttribPointer(stuff.aVertexPosition, 2, ctx.FLOAT, false, 0, 0);
     ctx.drawArrays(ctx.TRIANGLE_STRIP, 0, 4);
+    ctx.useProgram(null);
 }
 
 function blit_texture(ctx, stuff, texture) {
@@ -535,6 +355,12 @@ function blit_texture(ctx, stuff, texture) {
     ctx.activeTexture(ctx.TEXTURE0);
     ctx.bindTexture(ctx.TEXTURE_2D, texture);
     ctx.uniform1i(stuff.uTexture, 0);
+    ctx.uniform1f(stuff.uBailout, stuff.bailout);
+
+    ctx.uniform2f(stuff.uAspect, ctx.canvas.width / Math.min(ctx.canvas.width, ctx.canvas.height), ctx.canvas.height / Math.min(ctx.canvas.width, ctx.canvas.height));
+    ctx.uniform2f(stuff.uz0Scale, params.z0Scale[0], params.z0Scale[1]);
+    ctx.uniform2f(stuff.uc, params.c[0], params.c[1]);
+    ctx.uniform2f(stuff.uz0, params.z0[0], params.z0[1]);
 
     ctx.bindBuffer(ctx.ARRAY_BUFFER, stuff.vertexBuffer);
     ctx.enableVertexAttribArray(stuff.aVertexPosition);
@@ -542,6 +368,7 @@ function blit_texture(ctx, stuff, texture) {
     ctx.drawArrays(ctx.TRIANGLE_STRIP, 0, 4);
 
     ctx.bindTexture(ctx.TEXTURE_2D, null);
+    ctx.useProgram(null);
 }
 
 function draw_dots(ctx, stuff) {
@@ -560,55 +387,16 @@ function draw_dots(ctx, stuff) {
 
 function paint() {
     const ctx = document.getElementById("canvas").getContext("webgl2");
-    if (params.high_count === 0) {
-        ctx.bindFramebuffer(ctx.FRAMEBUFFER, glStuff.main.framebuffer);
-        ctx.viewport(0, 0, glStuff.main.fbWidth, glStuff.main.fbHeight);
-        ctx.clear(ctx.COLOR_BUFFER_BIT);
-        paintMandelbrot(ctx, glStuff.main, 0, 0);
+    ctx.bindFramebuffer(ctx.FRAMEBUFFER, glStuff.main.framebuffer);
+    ctx.viewport(0, 0, glStuff.main.fbWidth, glStuff.main.fbHeight);
+    ctx.clear(ctx.COLOR_BUFFER_BIT);
+    paintJulia(ctx, glStuff.main);
 
-        ctx.bindFramebuffer(ctx.FRAMEBUFFER, null);
-        ctx.viewport(0, 0, ctx.canvas.width, ctx.canvas.height);
-        ctx.clear(ctx.COLOR_BUFFER_BIT);
-        blit_texture(ctx, glStuff.blit, glStuff.main.destTexture);
-        draw_dots(ctx, glStuff.point);
-
-        if (params.timer !== null) {
-            clearTimeout(params.timer);
-        }
-        params.high_count += 1;
-        params.timer = setTimeout(paint, 300);
-    } else {
-        ctx.bindFramebuffer(ctx.FRAMEBUFFER, glStuff.high.framebuffer);
-        ctx.viewport(0, 0, glStuff.high.fbWidth, glStuff.high.fbHeight);
-
-        if (params.high_count === 1) {
-            ctx.clear(ctx.COLOR_BUFFER_BIT);
-            paintMandelbrot(ctx, glStuff.high, 0, 0);
-        } else {
-            ctx.enable(ctx.BLEND);
-            ctx.blendEquation(ctx.FUNC_ADD);
-            ctx.blendFuncSeparate(ctx.CONSTANT_ALPHA, ctx.ONE_MINUS_CONSTANT_ALPHA, ctx.CONSTANT_ALPHA, ctx.ONE_MINUS_CONSTANT_ALPHA);
-            ctx.blendColor(1.0, 1.0, 1.0, 1.0 / params.high_count);
-            let nudgeX = (Math.random() - 0.5) * 0.5 / 100;
-            let nudgeY = (Math.random() - 0.5) * 0.5 / 100;
-            paintMandelbrot(ctx, glStuff.high, nudgeX, nudgeY);
-            ctx.disable(ctx.BLEND);
-        }
-
-        ctx.bindFramebuffer(ctx.FRAMEBUFFER, null);
-        ctx.viewport(0, 0, ctx.canvas.width, ctx.canvas.height);
-        blit_texture(ctx, glStuff.blit, glStuff.high.destTexture);
-        draw_dots(ctx, glStuff.point);
-
-        params.high_count += 1;
-
-        if (params.timer !== null) {
-            clearTimeout(params.timer);
-        }
-        if (params.high_count < 8) {
-            params.timer = setTimeout(paint, 100);
-        }
-    }
+    ctx.bindFramebuffer(ctx.FRAMEBUFFER, null);
+    ctx.viewport(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.clear(ctx.COLOR_BUFFER_BIT);
+    blit_texture(ctx, glStuff.blit, glStuff.main.destTexture);
+    // draw_dots(ctx, glStuff.point);
 }
 
 function mousedown() {
@@ -878,88 +666,7 @@ function touchmove() {
 }
 
 function repaint() {
-    params.last_moved = performance.now();
-    params.high_count = 0;
-    if (params.timer !== null) {
-        clearTimeout(params.timer);
-    }
     paint();
-}
-
-function scale_rotate(scaleX, scaleY) {
-    params.last_moved = performance.now();
-    params.high_count = 0;
-    if (params.timer !== null) {
-        clearTimeout(params.timer);
-    }
-    if (params.mandelbrot) {
-        if (params.drag === "ca") {
-            let c0 = -params.ascale[0] - params.bscale[0];
-            let c1 = -params.ascale[1] - params.bscale[1];
-            let cincrx = c0 * scaleX - c1 * scaleY - c0;
-            let cincry = c0 * scaleY + c1 * scaleX - c1;
-            params.ascale[0] -= cincrx;
-            params.ascale[1] -= cincry;
-        }
-        if (params.drag === "bc") {
-            params.bscale = [
-                params.bscale[0] * scaleX - params.bscale[1] * scaleY,
-                params.bscale[0] * scaleY + params.bscale[1] * scaleX
-            ];
-        }
-        if (params.drag === "ab") {
-            let aincrx = params.ascale[0] * scaleX - params.ascale[1] * scaleY - params.ascale[0];
-            let aincry = params.ascale[0] * scaleY + params.ascale[1] * scaleX - params.ascale[1];
-            params.ascale[0] += aincrx;
-            params.ascale[1] += aincry;
-            params.bscale[0] -= aincrx;
-            params.bscale[1] -= aincry;
-        }
-        if (params.drag === "all") {
-            params.ascale = [
-                params.ascale[0] * scaleX - params.ascale[1] * scaleY,
-                params.ascale[0] * scaleY + params.ascale[1] * scaleX
-            ];
-            params.bscale = [
-                params.bscale[0] * scaleX - params.bscale[1] * scaleY,
-                params.bscale[0] * scaleY + params.bscale[1] * scaleX
-            ];
-        }
-    } else {
-        params.z0Scale /= scale;
-    }
-}
-
-function move(deltaX, deltaY) {
-    params.last_moved = performance.now();
-    params.high_count = 0;
-    if (params.timer !== null) {
-        clearTimeout(params.timer);
-    }
-    if (params.drag === "ca") {
-        const cscale = [
-            (scale[0] + params.bscale[0]),
-            (params.ascale[1] + params.bscale[1])
-        ];
-        params.a[0] += deltaX * cscale[0] - deltaY * cscale[1];
-        params.a[1] += deltaY * cscale[0] + deltaX * cscale[1];
-    }
-    if (params.drag === "bc") {
-        params.b[0] += deltaX * params.bscale[0] - deltaY * params.bscale[1];
-        params.b[1] += deltaY * params.bscale[0] + deltaX * params.bscale[1];
-    }
-    if (params.drag === "ab") {
-        params.a[0] += deltaX * params.ascale[0] - deltaY * params.ascale[1];
-        params.a[1] += deltaY * params.ascale[0] + deltaX * params.ascale[1];
-        params.b[0] -= deltaX * params.ascale[0] - deltaY * params.ascale[1];
-        params.b[1] -= deltaY * params.ascale[0] + deltaX * params.ascale[1];
-    }
-    if (params.drag === "all") {
-        params.a[0] += deltaX * params.ascale[0] - deltaY * params.ascale[1];
-        params.a[1] += deltaY * params.ascale[0] + deltaX * params.ascale[1];
-        params.b[0] += deltaX * params.bscale[0] - deltaY * params.bscale[1];
-        params.b[1] += deltaY * params.bscale[0] + deltaX * params.bscale[1];
-    }
 }
 
 function csqrt(z) {
@@ -1063,110 +770,6 @@ class Derivatives {
     cnorm_squared() {
         return this.real_part().square().add(this.imag_part().square());
     }
-}
-
-class RealDerivatives {
-    constructor(value, d) {
-        this.value = value;
-        this.d = d;
-    }
-
-    fromConstant(value) {
-        return new RealDerivatives(value, 0, 0);
-    }
-
-    together_with(other) {
-        // assumes this.value == other.value
-        return new RealDerivatives(this.value, this.d.concat(other.d));
-    }
-
-    add(other) {
-        let d = [];
-        for (let i = 0; i < this.d.length; i++) {
-            d.push(this.d[i] + other.d[i]);
-        }
-        return new RealDerivatives(
-            this.value + other.value,
-            d
-        );
-    }
-
-    mul(other) {
-        let d = [];
-        for (let i = 0; i < this.d.length; i++) {
-            d.push(this.d[i] * other.value + other.d[i] * this.value);
-        }
-        return new RealDerivatives(
-            this.value * other.value,
-            d,
-        )
-    }
-
-    square() {
-        return this.mul(this);
-    }
-
-    sqrt() {
-        let v = Math.sqrt(this.value);
-        let d = [];
-        for (let i = 0; i < this.d.length; i++) {
-            d.push(this.d[i] * 0.5 / v);
-        }
-        return new RealDerivatives(
-            v,
-            d
-        )
-    }
-}
-
-function target(x, y) {
-    params.c = add(mul([x,y], params.cscale), params.ccenter);
-    params.mandelbrot = false;
-    gen_dots();
-    repaint();
-}
-
-function direction_to_go(z) {
-    let Z = Derivatives.fromZ(z);
-    let C = Derivatives.fromC(params.c);
-    for (let i = 0; i < 1000; i++) {
-        Z = Z.square().add(C);
-        if (cnorm(Z.value) > 1000) {
-            break;
-        }
-    }
-    return div(Z.value, Z.dz);
-}
-
-function gen_dots() {
-    let c = params.c;
-    let z = c;
-    let prev = [0,0];
-
-    params.plot_points = [];
-    for (let i = 0; i < 500; i++) {
-        let d = direction_to_go(z);
-        z = add(z, scale(1, d));
-        // let preimage = csqrt(sub(z, c));
-        // if (cnorm(sub(prev,preimage)) > cnorm(add(prev,preimage))) {
-        //     preimage = scale(-1, preimage);
-        // }
-        // prev = preimage;
-        params.plot_points.push(div(sub(z, params.z0), params.z0Scale));
-        if (cnorm(z) > 1000) {
-            break;
-        }
-    }
-}
-
-function mandelbrot_direction_to_go(c,target,target_iter) {
-    let Z = Derivatives.fromZ(c);
-    Z.dc = [1,0];
-    let C = Derivatives.fromC(c);
-    for (let i = 0; i < target_iter; i++) {
-        Z = Z.square().add(C);
-    }
-    return {d:div(sub(Z.value, target), Z.dc), warning:cnorm(Z.value) > 1000};
 }
 
 function scale_mandelbrot_dots() {
